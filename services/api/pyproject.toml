@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "WARDEN FastAPI service"
 requires-python = ">=3.12"
 dependencies = [
+    "structlog>=26.1.0",
     "warden-core",
     "warden-db",
 ]

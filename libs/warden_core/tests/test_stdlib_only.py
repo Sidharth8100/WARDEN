@@ -13,7 +13,7 @@ def test_only_stdlib_imports():
             if isinstance(node, ast.Import):
                 names = [alias.name for alias in node.names]
             elif isinstance(node, ast.ImportFrom):
-                if node.level > 0:      # relative import like "from . import x"
+                if node.level > 0:  # relative import like "from . import x"
                     continue
                 names = [node.module or ""]
             else:

@@ -24,8 +24,39 @@ warden-db = { workspace = true }
 warden-api = { workspace = true }
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = [
+    "hypothesis>=6.168.0",
+    "mypy>=2.3.1",
+    "pre-commit>=4.6.2",
+    "pytest>=8",
+    "pytest-asyncio>=1.4.0",
+    "ruff>=0.16.8",
+]
+
+
 
 [tool.pytest.ini_options]
 testpaths = ["libs", "services"]
 addopts = "--import-mode=importlib"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = [".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S", "ASYNC", "SIM", "RUF"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["warden_core", "warden_db", "warden_api"]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["S101"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+mypy_path = ["libs/warden_core/src", "libs/warden_db/src", "services/api/src"]
+explicit_package_bases = true
