@@ -1,0 +1,13 @@
+[project]
+name = "warden-db"
+version = "0.1.0"
+description = "Database models and migrations for WARDEN"
+requires-python = ">=3.12"
+dependencies = []          # SQLAlchemy arrives in step 5 of Day 1
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/warden_db"]

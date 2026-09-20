@@ -1,0 +1,31 @@
+[project]
+name = "warden"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "warden-core",
+    "warden-db",
+    "warden-api",
+]
+
+[tool.uv]
+package = false            # the root is just a container; don't build it
+
+[tool.uv.workspace]
+members = [
+    "libs/warden_core",
+    "libs/warden_db",
+    "services/api",
+]
+
+[tool.uv.sources]
+warden-core = { workspace = true }
+warden-db = { workspace = true }
+warden-api = { workspace = true }
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["libs", "services"]
+addopts = "--import-mode=importlib"
