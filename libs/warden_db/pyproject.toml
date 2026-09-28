@@ -3,7 +3,11 @@ name = "warden-db"
 version = "0.1.0"
 description = "Database models and migrations for WARDEN"
 requires-python = ">=3.12"
-dependencies = []          # SQLAlchemy arrives in step 5 of Day 1
+dependencies = [
+    "alembic>=1.20.0",
+    "asyncpg>=0.31.0",
+    "sqlalchemy[asyncio]>=2.1.1",
+]          # SQLAlchemy arrives in step 5 of Day 1
 
 [build-system]
 requires = ["hatchling"]

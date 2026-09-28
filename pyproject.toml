@@ -6,6 +6,7 @@ dependencies = [
     "warden-core",
     "warden-db",
     "warden-api",
+    "redis>=8.1.0",
 ]
 
 [tool.uv]
