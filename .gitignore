@@ -34,5 +34,8 @@ Thumbs.db
 /data/
 /tmp/
 
+# Local session notes (not project source)
+report.txt
+
 # Frontend, later
 node_modules/
