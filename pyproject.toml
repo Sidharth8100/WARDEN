@@ -46,7 +46,12 @@ asyncio_default_fixture_loop_scope = "function"
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-extend-exclude = [".venv"]
+extend-exclude = [
+    ".venv",
+    # Auto-generated Alembic migration files. Ruff can't fix these reliably
+    # because they contain Alembic-generated code we must not alter.
+    "libs/warden_db/migrations/versions",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "S", "ASYNC", "SIM", "RUF"]

@@ -1,0 +1,4 @@
+# This file tells git (and tools) to ignore generated files inside migrations/
+# versions/ contains auto-generated migration scripts - we commit those.
+# __pycache__ is Python bytecode cache - never commit it.
+__pycache__/
