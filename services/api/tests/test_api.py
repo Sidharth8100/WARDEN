@@ -22,6 +22,7 @@ KEY TESTING TOOLS:
 """
 
 import os
+from collections.abc import AsyncGenerator
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -99,19 +100,22 @@ def make_test_app() -> Any:
 
 
 @pytest_asyncio.fixture
-async def client() -> AsyncClient:  # type: ignore[return]
+async def client() -> AsyncGenerator[AsyncClient, None]:
     """Create an async test client for the app.
 
     ASGITransport connects httpx directly to our FastAPI app in-process.
     No network, no port binding - just function calls.
     base_url is required by httpx but doesn't affect routing.
+
+    Return type is AsyncGenerator because this is an async generator function
+    (it uses `yield`). pytest-asyncio handles calling it as a fixture.
     """
     app = make_test_app()
     async with AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://test",
     ) as c:
-        yield c  # type: ignore[misc]
+        yield c
 
 
 # ---------------------------------------------------------------------------
@@ -240,7 +244,7 @@ class TestHealth:
         # Make the mock session raise an exception to simulate DB failure
         mock_session = AsyncMock()
         mock_session.execute = AsyncMock(
-            side_effect=OperationalError("could not connect", None, None)
+            side_effect=OperationalError("could not connect", None, Exception("conn failed"))
         )
         mock_sessionmaker = MagicMock()
         mock_sessionmaker.return_value.__aenter__ = AsyncMock(return_value=mock_session)

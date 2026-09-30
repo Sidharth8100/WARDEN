@@ -22,6 +22,7 @@ schema definitions without connecting to a real database.
 """
 
 import pytest
+from sqlalchemy import Index
 
 # Importing models populates Base.metadata as a side effect.
 # After this import, Base.metadata.tables contains all 9 table objects.
@@ -78,11 +79,17 @@ class TestCheckConstraints:
     """Verify named CHECK constraints exist on the metadata."""
 
     def _get_check_names(self, table_name: str) -> set[str]:
-        """Get all CHECK constraint names for a table."""
+        """Get all CHECK constraint names for a table.
+
+        c.name is typed as 'str | _NoneName | None' by SQLAlchemy's stubs
+        because constraint names are optional. We filter to only non-None
+        values and cast to str so mypy knows the set contains plain strings.
+        """
         from sqlalchemy import CheckConstraint
 
         table = Base.metadata.tables[table_name]
-        return {c.name for c in table.constraints if isinstance(c, CheckConstraint) and c.name}
+        # `and c.name` filters out None; str(c.name) converts _NoneName -> str
+        return {str(c.name) for c in table.constraints if isinstance(c, CheckConstraint) and c.name}
 
     def test_users_role_valid_check(self) -> None:
         """users.role must have the 'role_valid' CHECK constraint."""
@@ -124,10 +131,15 @@ class TestCheckConstraints:
 class TestPartialIndexes:
     """Verify partial indexes (indexes with WHERE clauses) exist on metadata."""
 
-    def _get_index_info(self, table_name: str) -> dict[str, object]:
-        """Return a dict of {index_name: index_object} for a table."""
+    def _get_index_info(self, table_name: str) -> dict[str, Index]:
+        """Return a dict of {index_name: Index} for a table.
+
+        idx.name is quoted_name (a str subclass). str() normalises it so the
+        dict key is a plain str, making mypy and IDE lookups unambiguous.
+        """
         table = Base.metadata.tables[table_name]
-        return {idx.name: idx for idx in table.indexes}
+        # idx.name is always set (Index always has a name), so str() is safe
+        return {str(idx.name): idx for idx in table.indexes if isinstance(idx, Index)}
 
     def test_monitors_partial_index_exists(self) -> None:
         """monitors should have the partial index on next_due_at WHERE state='active'."""
