@@ -67,3 +67,14 @@ python_version = "3.12"
 strict = true
 mypy_path = ["libs/warden_core/src", "libs/warden_db/src", "services/api/src"]
 explicit_package_bases = true
+
+# The pydantic mypy plugin teaches mypy how pydantic model fields work.
+# Without it, mypy complains about missing __init__ arguments on BaseSettings
+# subclasses (because pydantic generates __init__ dynamically at runtime).
+plugins = ["pydantic.mypy"]
+
+[tool.pydantic-mypy]
+# Warn when a pydantic model field has an annotation but no default and no
+# validator - helps catch missing required fields at type-check time.
+init_forbid_extra = true
+warn_required_dynamic_aliases = true

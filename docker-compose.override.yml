@@ -1,0 +1,36 @@
+# docker-compose.override.yml
+#
+# WHAT IS AN OVERRIDE FILE?
+# ==========================
+# Docker Compose automatically merges this file ON TOP of docker-compose.yml
+# when you run any `docker compose` command. You never need to specify it
+# explicitly - Compose picks it up automatically.
+#
+# WHY A SEPARATE FILE?
+# ====================
+# The main docker-compose.yml intentionally does NOT publish any database
+# ports to the host. This is correct for production - your database should
+# only be reachable by other containers, never from the internet.
+#
+# But during development, we need to run `alembic` from our laptop (the host
+# machine) to create/test migrations. For that, alembic needs to connect to
+# Postgres. This override file adds that port mapping ONLY in development.
+#
+# The override file is committed to git (it's dev-only config, not secrets).
+# In production or CI, you simply don't have this file, so Postgres stays
+# unexposed.
+#
+# CONSTRAINT: Per the project rules, we publish ONLY on 127.0.0.1 (localhost)
+# never on 0.0.0.0 (all interfaces). This prevents the port from being
+# accessible from other machines on the network.
+
+name: warden
+
+services:
+  postgres:
+    ports:
+      # Format: "HOST_IP:HOST_PORT:CONTAINER_PORT"
+      # 127.0.0.1:5433 -> container's 5432
+      # We use 5433 (not 5432) so it doesn't clash if you have a local
+      # Postgres already running on the standard port.
+      - "127.0.0.1:5433:5432"
