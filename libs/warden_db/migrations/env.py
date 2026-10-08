@@ -90,7 +90,11 @@ if not _db_url:
     )
 
 # Override the placeholder URL from alembic.ini with the real one.
-config.set_main_option("sqlalchemy.url", _db_url)
+# configparser uses % for its own string interpolation syntax (%(var)s).
+# If the DB URL contains a %-encoded character (e.g. %40 for @), configparser
+# mis-reads it as the start of a variable reference and raises ValueError.
+# Doubling every % to %% tells configparser to treat it as a literal percent.
+config.set_main_option("sqlalchemy.url", _db_url.replace("%", "%%"))
 
 
 # ---------------------------------------------------------------------------
