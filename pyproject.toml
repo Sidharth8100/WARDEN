@@ -39,9 +39,18 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["libs", "services"]
-addopts = "--import-mode=importlib"
+addopts = "--import-mode=importlib -m 'not integration'"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+
+# Custom markers let us tag slow / infra-dependent tests and skip them
+# in environments without a real database (e.g. CI without Docker).
+# Usage in a test file: @pytest.mark.integration
+# Run only integration tests: uv run pytest -m integration
+# Run only unit tests:        uv run pytest -m "not integration"
+markers = [
+    "integration: requires a live PostgreSQL database (deselect with -m 'not integration')",
+]
 
 [tool.ruff]
 line-length = 100
