@@ -40,6 +40,7 @@ production) just sets its own environment variable - same code everywhere.
 
 import asyncio
 import os
+import urllib.parse
 from logging.config import fileConfig
 
 from alembic import context
@@ -74,12 +75,32 @@ if config.config_file_name is not None:
 # It compares this against what's actually in the database to find drift.
 target_metadata = Base.metadata
 
+
 # ---------------------------------------------------------------------------
 # Step 2: Inject the real database URL from the environment.
 #
 # We MUST have WARDEN_DATABASE_URL set. If it's missing we fail fast with a
 # clear error message rather than a confusing SQLAlchemy connection error.
 # ---------------------------------------------------------------------------
+def _normalize_db_url(url: str) -> str:
+    """Normalize a database URL, handling unencoded special characters in passwords.
+
+    When environment variable substitution (e.g. Docker Compose) injects passwords
+    containing '@' without percent-encoding, the URL contains multiple '@' characters.
+    Splitting on the rightmost '@' isolates user:password from host:port/db, allowing
+    safe percent-encoding of the password.
+    """
+    prefix, sep, rest = url.partition("://")
+    if not sep:
+        return url
+    if rest.count("@") > 1:
+        auth, _, host_db = rest.rpartition("@")
+        user, _, password = auth.partition(":")
+        encoded_password = urllib.parse.quote_plus(password)
+        return f"{prefix}://{user}:{encoded_password}@{host_db}"
+    return url
+
+
 _db_url = os.environ.get("WARDEN_DATABASE_URL")
 if not _db_url:
     raise RuntimeError(
@@ -88,6 +109,8 @@ if not _db_url:
         "  WARDEN_DATABASE_URL=postgresql+asyncpg://<user>:<pass>@localhost:5433/<db>\n"
         "For Docker Compose, this is set automatically from POSTGRES_* variables."
     )
+
+_db_url = _normalize_db_url(_db_url)
 
 # Override the placeholder URL from alembic.ini with the real one.
 # configparser uses % for its own string interpolation syntax (%(var)s).

@@ -15,12 +15,33 @@ Usage (FastAPI lifespan):
     await engine.dispose()
 """
 
+import urllib.parse
+
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
+
+
+def _normalize_db_url(url: str) -> str:
+    """Normalize a database URL, handling unencoded special characters in passwords.
+
+    When environment variable substitution (e.g. Docker Compose) injects passwords
+    containing '@' without percent-encoding, the URL contains multiple '@' characters.
+    Splitting on the rightmost '@' isolates user:password from host:port/db, allowing
+    safe percent-encoding of the password.
+    """
+    prefix, sep, rest = url.partition("://")
+    if not sep:
+        return url
+    if rest.count("@") > 1:
+        auth, _, host_db = rest.rpartition("@")
+        user, _, password = auth.partition(":")
+        encoded_password = urllib.parse.quote_plus(password)
+        return f"{prefix}://{user}:{encoded_password}@{host_db}"
+    return url
 
 
 def make_engine(url: str) -> AsyncEngine:
@@ -39,6 +60,7 @@ def make_engine(url: str) -> AsyncEngine:
     The URL scheme MUST be postgresql+asyncpg:// (not postgresql://) because
     SQLAlchemy uses the scheme to select the correct async dialect.
     """
+    url = _normalize_db_url(url)
     if not url.startswith("postgresql+asyncpg://"):
         raise ValueError(f"Database URL must use postgresql+asyncpg:// scheme, got: {url[:30]}...")
 
