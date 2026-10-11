@@ -1,0 +1,47 @@
+# .dockerignore
+#
+# WHAT IS .dockerignore?
+# ======================
+# When you run `docker build`, Docker sends every file in the build directory
+# to the Docker daemon ("build context"). Without .dockerignore, this includes
+# .git (hundreds of MB), .venv (all Python packages), .env (secrets), etc.
+#
+# .dockerignore works exactly like .gitignore: patterns listed here are
+# EXCLUDED from the build context. This makes builds faster AND safer.
+#
+# ---- Source control ----
+.git
+.gitignore
+
+# ---- Python runtime artifacts (never needed in the image) ----
+__pycache__
+*.py[cod]
+*.pyo
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# ---- Virtual environment (the Dockerfile installs its own) ----
+.venv
+
+# ---- Secrets and local config ----
+# IMPORTANT: .env contains real passwords. Never put it in a Docker image.
+# .env.example is safe and IS included (it has placeholder values only).
+.env
+.env.local
+.env.*.local
+
+# ---- Development tooling ----
+.pre-commit-config.yaml
+.github
+
+# ---- Node (in case a future frontend lives nearby) ----
+node_modules
+
+# ---- macOS system files ----
+.DS_Store
+
+# ---- IDE settings ----
+.vscode
+.idea
+*.swp

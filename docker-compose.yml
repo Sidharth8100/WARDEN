@@ -1,22 +1,66 @@
 name: warden
 
+# ==============================================================================
+# WHAT IS DOCKER COMPOSE?
+# ==============================================================================
+# Docker Compose lets you define and run multi-container applications.
+# Instead of running `docker run` with many flags for each service, you write
+# this YAML file and run `docker compose up` to start everything at once.
+#
+# Each entry under `services:` is a separate container:
+#   postgres     - the database (PostgreSQL 16)
+#   redis        - the cache / message broker (Redis 7)
+#   objectstore  - the file/blob storage (SeaweedFS, S3-compatible)
+#   mailpit      - catches outgoing emails in development (fake SMTP server)
+#   migrate      - one-shot container that runs Alembic migrations
+#   api          - the FastAPI application
+#
+# `depends_on` with `condition` controls startup ORDER:
+#   - migrate waits for postgres to be "healthy" before running
+#   - api waits for migrate to "complete successfully" before starting
+#
+# WHY NO CUSTOM NETWORKS OR SUBNETS?
+# Per project constraints, we never add custom network blocks with subnets
+# because of a campus-network conflict with Docker's default subnet ranges.
+# All services communicate using Docker's default bridge network, where
+# each service is reachable by its service name (e.g., "postgres", "redis").
+# ==============================================================================
+
 services:
+
+  # ============================================================================
+  # POSTGRES - The primary relational database.
+  # ============================================================================
   postgres:
     image: postgres:16
     environment:
+      # ${VAR:?message} means: read from .env; if missing, abort with message.
+      # This prevents accidentally starting with empty credentials.
       POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
     volumes:
+      # Named volume: persists data between `docker compose down` restarts.
+      # NOT deleted by `docker compose down` (only by `docker compose down -v`).
       - pgdata:/var/lib/postgresql/data
     healthcheck:
+      # pg_isready: Postgres's built-in readiness check. Returns 0 when the
+      # server is ready to accept connections. Docker uses this to know when
+      # it's safe for migrate/api to start.
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 3s
       retries: 10
 
+  # ============================================================================
+  # REDIS - In-memory key/value store. Used for: client lifecycle tracking
+  # and the health check PING. Future uses: rate limiting, session storage.
+  # ============================================================================
   redis:
     image: redis:7
+    # AOF (Append-Only File) persistence: every write command is logged to disk.
+    # everysec: flush to disk once per second (good balance of safety vs speed).
+    # This means at most 1 second of data loss if Redis crashes.
     command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
     volumes:
       - redisdata:/data
@@ -26,14 +70,98 @@ services:
       timeout: 3s
       retries: 10
 
+  # ============================================================================
+  # OBJECTSTORE - SeaweedFS with S3-compatible API.
+  # Used to store snapshots (HTML content, screenshots) and blobs.
+  # Accessible inside the compose network at http://objectstore:8333
+  # ============================================================================
   objectstore:
     image: chrislusf/seaweedfs
+    # "server" mode runs master + volume server + filer + S3 gateway in one process.
+    # -s3: enable the S3-compatible API
+    # -s3.port=8333: the S3 API listens on port 8333
+    # -dir=/data: store all data in the named volume
     command: ["server", "-s3", "-dir=/data", "-s3.port=8333"]
     volumes:
       - objectdata:/data
 
+  # ============================================================================
+  # MAILPIT - Development-only fake SMTP server.
+  # Catches all outgoing emails and shows them in a web UI. Nothing actually
+  # gets delivered. Prevents accidentally sending real emails during dev.
+  # ============================================================================
   mailpit:
     image: axllent/mailpit
+
+  # ============================================================================
+  # MIGRATE - One-shot migration runner.
+  # Runs `alembic upgrade head` once at startup and then exits.
+  # docker compose tracks its exit code: 0 = success, non-zero = failure.
+  #
+  # WHY A SEPARATE CONTAINER?
+  # Running migrations in the API container would mean:
+  #   - Every API instance (in a scaled cluster) tries to run migrations
+  #   - Race conditions between concurrent migration runs
+  # The migrate service runs exactly once per `docker compose up` call,
+  # before the API starts, ensuring clean sequential migration.
+  # ============================================================================
+  migrate:
+    # Same image as the API - it has alembic and our models installed.
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    command:
+      [
+        "alembic",
+        "-c", "/app/db/alembic.ini",
+        "upgrade", "head",
+      ]
+    environment:
+      # Inside the compose network, Postgres is reachable as "postgres" (the
+      # service name), not "localhost". Docker's internal DNS resolves service
+      # names to container IPs automatically.
+      WARDEN_DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
+      WARDEN_REDIS_URL: "redis://redis:6379/0"
+      WARDEN_OBJECTSTORE_URL: "http://objectstore:8333"
+      WARDEN_ALEMBIC_INI_PATH: "/app/db/alembic.ini"
+    depends_on:
+      postgres:
+        # "service_healthy" means: wait until postgres's healthcheck returns OK.
+        # This prevents migration from starting while Postgres is still booting.
+        condition: service_healthy
+    # restart: "no" means: if migrations fail, don't retry automatically.
+    # We want a clean failure signal, not an infinite retry loop.
+    restart: "no"
+
+  # ============================================================================
+  # API - The FastAPI application.
+  # Starts ONLY after migrate completes successfully.
+  # ============================================================================
+  api:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    environment:
+      WARDEN_DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
+      WARDEN_REDIS_URL: "redis://redis:6379/0"
+      WARDEN_OBJECTSTORE_URL: "http://objectstore:8333"
+      WARDEN_ALEMBIC_INI_PATH: "/app/db/alembic.ini"
+      WARDEN_LOG_LEVEL: "${WARDEN_LOG_LEVEL:-INFO}"
+      WARDEN_JSON_LOGS: "${WARDEN_JSON_LOGS:-true}"
+    ports:
+      # Bind to 127.0.0.1 ONLY - never 0.0.0.0 (project constraint).
+      # The API is reachable from your laptop at http://localhost:18000
+      # but NOT from other machines on the network.
+      - "127.0.0.1:18000:8000"
+    depends_on:
+      migrate:
+        # "service_completed_successfully" means: wait until the migrate
+        # container exits with code 0 (success). If it exits with non-zero
+        # (migration failed), the API will NOT start.
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   pgdata: {}
