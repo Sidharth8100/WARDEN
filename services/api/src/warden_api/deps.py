@@ -67,3 +67,7 @@ async def get_session(request: Request) -> AsyncGenerator[AsyncSession, None]:
         # After the handler finishes (or raises), execution resumes here
         # and the `async with` block closes the session.
         yield session
+
+
+# Alias for route injection consistency across services
+get_db = get_session

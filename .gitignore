@@ -22,6 +22,7 @@ htmlcov/
 *.pem
 *.key
 certs/
+keys/
 
 # Editors and OS
 .idea/

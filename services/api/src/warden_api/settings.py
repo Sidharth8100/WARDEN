@@ -37,10 +37,9 @@ call to get_settings().
 """
 
 from functools import lru_cache
+from typing import Any, Literal
 
-# SettingsConfigDict is the modern pydantic-settings v2 way to configure the
-# Settings class behavior (replaces the old inner `class Config` pattern).
-from pydantic import SecretStr
+from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -60,6 +59,13 @@ class Settings(BaseSettings):
       WARDEN_ALEMBIC_INI_PATH  - path to alembic.ini for /ready check
       WARDEN_LOG_LEVEL         - Python logging level string
       WARDEN_JSON_LOGS         - whether to output structured JSON logs
+      WARDEN_ENV               - 'dev' or 'prod' (default: 'dev')
+      WARDEN_COOKIE_SECURE     - cookie Secure attribute (defaults to env == 'prod')
+      WARDEN_JWT_PRIVATE_KEY_PATH - path to Ed25519 private PEM
+      WARDEN_JWT_PUBLIC_KEY_PATH  - path to Ed25519 public PEM
+      WARDEN_JWT_KID           - key identifier header for JWT rotation
+      WARDEN_ACCESS_TOKEN_TTL_SECONDS  - access token lifetime (default: 900s / 15m)
+      WARDEN_REFRESH_TOKEN_TTL_SECONDS - refresh token lifetime (default: 30 days)
     """
 
     # SettingsConfigDict replaces the old inner `class Config`.
@@ -96,6 +102,33 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"
     json_logs: bool = True
+
+    # Prompt 2 settings
+    env: Literal["dev", "prod"] = "dev"
+    cookie_secure: bool = True
+
+    jwt_private_key_path: str = "keys/jwt_ed25519_private.pem"
+    jwt_public_key_path: str = "keys/jwt_ed25519_public.pem"
+    jwt_kid: str = "warden-key-1"
+    access_token_ttl_seconds: int = 900
+    refresh_token_ttl_seconds: int = 2_592_000
+
+    # Precomputed Argon2id dummy hash used on failed login for nonexistent users
+    # so that timing is shaped identically to an actual hash verification.
+    dummy_password_hash: str = (
+        "$argon2id$v=19$m=65536,t=3,p=4$9CNq2oL4dlqpkw48rrhl+w"  # noqa: S105
+        "$25a/S4cvOKLw1p9bW0+JpZ2OLGRVRz2h6D3V8c5jYYA"
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def set_cookie_secure(cls, data: Any) -> Any:
+        """Default cookie_secure to False in dev and True in prod unless explicitly overridden."""
+        if isinstance(data, dict) and (
+            "cookie_secure" not in data or data.get("cookie_secure") is None
+        ):
+            data["cookie_secure"] = data.get("env", "dev") == "prod"
+        return data
 
 
 @lru_cache  # Returns the same Settings instance on every call after the first
