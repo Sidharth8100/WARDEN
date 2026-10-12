@@ -105,3 +105,40 @@ feature_snapshot  jsonb
 created_at        timestamptz not null default now()
 
 unique (event_id, user_id)
+
+
+tags:
+id              uuid primary key
+user_id         uuid not null references users(id) on delete cascade
+name            text not null
+created_at      timestamptz not null default now()
+unique (user_id, name)
+
+
+monitor_tags:
+monitor_id      uuid not null references monitors(id) on delete cascade
+tag_id          uuid not null references tags(id) on delete cascade
+primary key (monitor_id, tag_id)
+
+
+audit_log:
+id              bigint generated always as identity primary key
+user_id         uuid references users(id) on delete set null
+action          text not null
+resource_type   text
+resource_id     text
+metadata        jsonb
+ip_address      text
+user_agent      text
+created_at      timestamptz not null default now()
+index on (user_id, created_at desc)
+
+
+idempotency_keys:
+key             text primary key
+user_id         uuid not null references users(id) on delete cascade
+request_hash    text not null
+response_status int not null
+response_body   jsonb
+created_at      timestamptz not null default now()
+-- Note: no TTL/cleanup job yet; flagged as a known gap for a later day

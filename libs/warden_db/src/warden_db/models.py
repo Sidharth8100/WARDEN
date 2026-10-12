@@ -17,6 +17,7 @@ Design notes:
 """
 
 import uuid
+from datetime import datetime
 
 from sqlalchemy import (
     BigInteger,
@@ -86,7 +87,7 @@ class User(Base):
         nullable=False,
         server_default=text("'free'"),
     )
-    created_at: Mapped[str | None] = mapped_column(
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("now()"), nullable=False
     )
 
@@ -94,6 +95,11 @@ class User(Base):
     refresh_families: Mapped[list["RefreshFamily"]] = relationship(back_populates="user")
     monitors: Mapped[list["Monitor"]] = relationship(back_populates="user")
     feedback_labels: Mapped[list["FeedbackLabel"]] = relationship(back_populates="user")
+    tags: Mapped[list["Tag"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    audit_logs: Mapped[list["AuditLog"]] = relationship(back_populates="user")
+    idempotency_keys: Mapped[list["IdempotencyKey"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -116,7 +122,7 @@ class RefreshFamily(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
-    revoked_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     user: Mapped["User"] = relationship(back_populates="refresh_families")
@@ -144,8 +150,8 @@ class RefreshToken(Base):
         ForeignKey("refresh_tokens.id"), nullable=True
     )
     # used_at is NULL until the token is redeemed (nullable by design).
-    used_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    expires_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     family: Mapped["RefreshFamily"] = relationship(back_populates="tokens")
 
@@ -181,6 +187,8 @@ class Monitor(Base):
     url: Mapped[str] = mapped_column(Text, nullable=False)
     url_canonical: Mapped[str] = mapped_column(Text, nullable=False)
     url_hash: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    # NOTE: domain holds the REGISTRABLE domain (eTLD+1, via tldextract,
+    # e.g. example.co.uk, not www.example.co.uk). Day 11's sharding depends on this.
     domain: Mapped[str] = mapped_column(Text, nullable=False)
     fetch_tier: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default=text("1"))
     needs_render: Mapped[bool] = mapped_column(
@@ -190,15 +198,15 @@ class Monitor(Base):
     rule_src: Mapped[str | None] = mapped_column(Text, nullable=True)
     min_interval_s: Mapped[int] = mapped_column(Integer, nullable=False)
     max_interval_s: Mapped[int] = mapped_column(Integer, nullable=False)
-    next_due_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=False)
+    next_due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     state: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'active'"))
     version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
-    created_at: Mapped[DateTime] = mapped_column(
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
     # updated_at: set by the DB on INSERT and updated by SQLAlchemy on every
     # UPDATE via onupdate. Using server_default for INSERT consistency.
-    updated_at: Mapped[DateTime] = mapped_column(
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
         server_default=text("now()"),
@@ -208,6 +216,7 @@ class Monitor(Base):
     user: Mapped["User"] = relationship(back_populates="monitors")
     snapshots: Mapped[list["Snapshot"]] = relationship(back_populates="monitor")
     change_events: Mapped[list["ChangeEvent"]] = relationship(back_populates="monitor")
+    tags: Mapped[list["Tag"]] = relationship(secondary="monitor_tags", back_populates="monitors")
 
 
 # ---------------------------------------------------------------------------
@@ -244,7 +253,7 @@ class Snapshot(Base):
         primary_key=True,
     )
     # fetched_at is part of the composite PK - see class docstring.
-    fetched_at: Mapped[DateTime] = mapped_column(
+    fetched_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, primary_key=True
     )
     monitor_id: Mapped[uuid.UUID] = mapped_column(
@@ -284,7 +293,7 @@ class ChangeEvent(Base):
     # the snapshots PK is composite, so a single-column FK is not valid.
     from_snapshot_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     to_snapshot_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    detected_at: Mapped[DateTime] = mapped_column(
+    detected_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
     kind: Mapped[str] = mapped_column(Text, nullable=False)
@@ -329,12 +338,12 @@ class Outbox(Base):
     kind: Mapped[str] = mapped_column(Text, nullable=False)
     payload: Mapped[dict] = mapped_column(JSONB, nullable=False)  # type: ignore[type-arg]
     idempotency_key: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
-    available_at: Mapped[DateTime] = mapped_column(
+    available_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'pending'"))
-    created_at: Mapped[DateTime] = mapped_column(
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
 
@@ -366,9 +375,109 @@ class FeedbackLabel(Base):
     )
     label: Mapped[str] = mapped_column(Text, nullable=False)
     feature_snapshot: Mapped[dict | None] = mapped_column(JSONB, nullable=True)  # type: ignore[type-arg]
-    created_at: Mapped[DateTime] = mapped_column(
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
 
     change_event: Mapped["ChangeEvent"] = relationship(back_populates="feedback_labels")
     user: Mapped["User"] = relationship(back_populates="feedback_labels")
+
+
+# ---------------------------------------------------------------------------
+# tags
+# ---------------------------------------------------------------------------
+
+
+class Tag(Base):
+    """User-defined tag for organizing monitors."""
+
+    __tablename__ = "tags"
+    __table_args__ = (UniqueConstraint("user_id", "name"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+    user: Mapped["User"] = relationship(back_populates="tags")
+    monitors: Mapped[list["Monitor"]] = relationship(
+        secondary="monitor_tags", back_populates="tags"
+    )
+
+
+# ---------------------------------------------------------------------------
+# monitor_tags
+# ---------------------------------------------------------------------------
+
+
+class MonitorTag(Base):
+    """Association table connecting monitors to tags (many-to-many)."""
+
+    __tablename__ = "monitor_tags"
+
+    monitor_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("monitors.id", ondelete="CASCADE"), primary_key=True
+    )
+    tag_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True
+    )
+
+
+# ---------------------------------------------------------------------------
+# audit_log
+# ---------------------------------------------------------------------------
+
+
+class AuditLog(Base):
+    """Security and operational audit trail."""
+
+    __tablename__ = "audit_log"
+    __table_args__ = (Index("ix_audit_log_user_id_created_at", "user_id", text("created_at DESC")),)
+
+    id: Mapped[int] = mapped_column(BigInteger, autoincrement=True, primary_key=True)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    resource_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resource_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_: Mapped[dict | None] = mapped_column("metadata", JSONB, nullable=True)  # type: ignore[type-arg]
+    ip_address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+    user: Mapped["User | None"] = relationship(back_populates="audit_logs")
+
+
+# ---------------------------------------------------------------------------
+# idempotency_keys
+# ---------------------------------------------------------------------------
+
+
+class IdempotencyKey(Base):
+    """Idempotency record for non-GET API mutation requests.
+
+    NOTE: this table currently has no TTL/cleanup background job;
+    flagged as a known gap for a later day.
+    """
+
+    __tablename__ = "idempotency_keys"
+
+    key: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    request_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    response_status: Mapped[int] = mapped_column(Integer, nullable=False)
+    response_body: Mapped[dict | None] = mapped_column(JSONB, nullable=True)  # type: ignore[type-arg]
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+    user: Mapped["User"] = relationship(back_populates="idempotency_keys")

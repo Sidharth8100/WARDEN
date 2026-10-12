@@ -14,7 +14,7 @@
 
 # .PHONY: tells Make that these are not file names - just command names.
 # Without this, if a file named "test" existed, `make test` would say "up to date".
-.PHONY: fmt lint types test check up down logs migrate-test revision
+.PHONY: fmt lint types test check check-todos up down logs migrate-test revision
 
 # ==============================================================================
 # Code quality targets
@@ -35,12 +35,16 @@ lint:
 types:
 	# Run mypy static type checker on all source directories.
 	# strict mode: no Any, no missing return types, no untyped functions.
-	uv run mypy libs/warden_core/src libs/warden_db/src services/api/src
+	uv run mypy libs/warden_core/src libs/warden_db/src libs/warden_net/src services/api/src
 
 test:
 	# Run all tests (unit + integration if Postgres is reachable).
 	# -q: quiet mode (one dot per test instead of full test name)
 	uv run pytest -q
+
+check-todos:
+	# Run tests for student-implemented functions (tagged with @pytest.mark.student_todo)
+	uv run pytest -q -m student_todo
 
 check: lint types test
 	# The "golden gate" - run ALL quality gates in sequence.

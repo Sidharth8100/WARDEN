@@ -165,7 +165,7 @@ class TestMigrationSchema:
         The head revision ID is hardcoded here because it's a known value
         from the initial_schema migration. Future migrations would update this.
         """
-        head_rev = "2fdb8aa45d1d"  # from migrations/versions/2fdb8aa45d1d_initial_schema.py
+        head_rev = "d7192f44a301"  # from migrations/versions/d7192f44a301_tags_audit_idempotency.py
 
         async with engine.connect() as conn:
             result = await conn.execute(sa.text("SELECT version_num FROM alembic_version LIMIT 1"))
@@ -179,14 +179,18 @@ class TestMigrationSchema:
     @pytest.mark.parametrize(
         "table_name",
         [
+            "audit_log",
             "change_events",
             "feedback_labels",
+            "idempotency_keys",
+            "monitor_tags",
             "monitors",
             "outbox",
             "plans",
             "refresh_families",
             "refresh_tokens",
             "snapshots",
+            "tags",
             "users",
         ],
     )

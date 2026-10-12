@@ -32,14 +32,18 @@ from warden_db.base import Base
 # Expected tables in alphabetical order for deterministic comparison.
 EXPECTED_TABLES = frozenset(
     {
+        "audit_log",
         "change_events",
         "feedback_labels",
+        "idempotency_keys",
+        "monitor_tags",
         "monitors",
         "outbox",
         "plans",
         "refresh_families",
         "refresh_tokens",
         "snapshots",
+        "tags",
         "users",
     }
 )
@@ -48,12 +52,8 @@ EXPECTED_TABLES = frozenset(
 class TestModelRegistry:
     """Verify the ORM metadata contains the exact expected tables."""
 
-    def test_exactly_nine_tables(self) -> None:
-        """The metadata should contain exactly 9 tables - no more, no less.
-
-        If someone adds a table without updating this test, it will fail,
-        prompting them to consciously add it to EXPECTED_TABLES too.
-        """
+    def test_exactly_thirteen_tables(self) -> None:
+        """The metadata should contain exactly 13 tables (9 Prompt 1 + 4 Prompt 2)."""
         actual = frozenset(Base.metadata.tables.keys())
         assert actual == EXPECTED_TABLES, (
             f"Table mismatch.\n"
@@ -194,3 +194,22 @@ class TestNoForeignKeyOnSnapshotId:
             "change_events has a FK to snapshots - this is invalid because "
             "snapshots has a composite PK and id alone is not unique"
         )
+
+
+class TestPrompt2ModelConstraints:
+    """Verify indexes and unique constraints on Prompt 2 models."""
+
+    def test_tags_unique_constraint(self) -> None:
+        """tags table must enforce UNIQUE(user_id, name)."""
+        table = Base.metadata.tables["tags"]
+        unique_sets = [
+            {c.name for c in uq.columns}
+            for uq in table.constraints
+            if hasattr(uq, "columns") and uq.__class__.__name__ == "UniqueConstraint"
+        ]
+        assert {"user_id", "name"} in unique_sets
+
+    def test_audit_log_index(self) -> None:
+        """audit_log table must have index on (user_id, created_at DESC)."""
+        table = Base.metadata.tables["audit_log"]
+        assert "ix_audit_log_user_id_created_at" in [str(idx.name) for idx in table.indexes]
