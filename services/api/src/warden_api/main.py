@@ -51,9 +51,12 @@ import redis.asyncio as aioredis
 import structlog
 from fastapi import FastAPI
 
+from warden_api.auth import router as auth_router
+from warden_api.errors import register_error_handlers
 from warden_api.health import router as health_router
 from warden_api.logconfig import configure_logging
 from warden_api.middleware import RequestIDMiddleware
+from warden_api.monitors import router as monitors_router
 from warden_api.settings import Settings, get_settings
 
 _log = structlog.get_logger(__name__)
@@ -181,11 +184,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # We add RequestIDMiddleware once - it handles every request.
     app.add_middleware(RequestIDMiddleware)
 
+    # ---- Error Handlers (RFC 7807) ---------------------------------------
+    register_error_handlers(app)
+
     # ---- Routers ---------------------------------------------------------
     # Include the health endpoints. No prefix means:
     #   /live  -> GET /live
     #   /health -> GET /health
     #   /ready  -> GET /ready
     app.include_router(health_router)
+    app.include_router(auth_router)
+    app.include_router(monitors_router)
 
     return app
