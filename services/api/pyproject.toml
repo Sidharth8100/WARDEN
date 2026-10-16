@@ -19,6 +19,8 @@ dependencies = [
     "warden-core",
     "warden-db",
     "warden-net",
+    "warden-fetch",
+    "warden-compare",
     "zxcvbn>=4.4.28",
 ]
 
@@ -26,6 +28,8 @@ dependencies = [
 warden-core = { workspace = true }
 warden-db = { workspace = true }
 warden-net = { workspace = true }
+warden-fetch = { workspace = true }
+warden-compare = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

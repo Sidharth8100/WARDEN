@@ -81,12 +81,20 @@ async def resolve_host(host: str) -> list[IPv4Address | IPv6Address]:
     return ips
 
 
-async def validate_url_is_safe(url: str) -> SSRFCheckResult:
+async def validate_url_is_safe(
+    url: str,
+    *,
+    extra_allowed_hosts: frozenset[str] = frozenset(),
+) -> SSRFCheckResult:
     """Canonicalize, resolve host, and verify all resolved IPs against blocked ranges.
 
     If ANY resolved IP address is blocked, the ENTIRE URL is rejected.
     This prevents DNS rebinding / round-robin attacks where an attacker points
     a hostname at both a safe public IP and an internal address.
+
+    DEV ALLOWLIST HOOK:
+    If `extra_allowed_hosts` contains the hostname (e.g. "chaos-web"), resolution
+    blocks are overridden explicitly for that host only.
     """
     try:
         canonical_obj = canonicalize_url(url)
@@ -97,6 +105,10 @@ async def validate_url_is_safe(url: str) -> SSRFCheckResult:
     host = parsed.hostname
     if not host:
         return SSRFCheckResult(safe=False, reason="missing_host", resolved_ips=[])
+
+    # Dev allowlist: check hostname before resolution
+    if host in extra_allowed_hosts:
+        return SSRFCheckResult(safe=True, reason=None, resolved_ips=[])
 
     try:
         resolved = await resolve_host(host)
@@ -130,6 +142,8 @@ async def safe_get(
     *,
     max_bytes: int = 2_097_152,
     timeout_s: float = 10.0,
+    extra_allowed_hosts: frozenset[str] = frozenset(),
+    extra_headers: dict[str, str] | None = None,
 ) -> SafeFetchResult:
     """Safely fetch a URL with SSRF validation at every redirect hop and bounded streaming.
 
@@ -150,7 +164,7 @@ async def safe_get(
     ) as client:
         while True:
             # 1. Validate current URL
-            check = await validate_url_is_safe(curr_url)
+            check = await validate_url_is_safe(curr_url, extra_allowed_hosts=extra_allowed_hosts)
             if not check.safe:
                 raise SSRFBlockedError(
                     f"SSRF check failed at hop {hop} ({curr_url}): {check.reason}"
@@ -158,6 +172,8 @@ async def safe_get(
 
             # 2. Issue request via streaming
             headers = {"User-Agent": "WARDEN-Fetcher/1.0"}
+            if extra_headers:
+                headers.update(extra_headers)
             req = client.build_request("GET", curr_url, headers=headers)
             resp = await client.send(req, stream=True)
 

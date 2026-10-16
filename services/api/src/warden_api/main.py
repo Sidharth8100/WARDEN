@@ -112,6 +112,31 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.http_client = http_client
     _log.info("http_client_created")
 
+    # --- SSRF Test Allowlist Warning (Dev only) ------------------------
+    if settings.ssrf_test_allowlist:
+        _log.warning(
+            "ssrf_allowlist_active",
+            msg=(
+                "SSRF allowlist is active — this must never be non-empty in a production deployment"
+            ),
+            allowed_hosts=settings.ssrf_test_allowlist,
+        )
+
+    # --- Object Store Bucket Initialization ----------------------------
+    from warden_net.objectstore import ObjectStoreConfig, ensure_bucket_exists
+
+    obj_cfg = ObjectStoreConfig(
+        endpoint_url=settings.objectstore_endpoint,
+        access_key=settings.objectstore_access_key.get_secret_value(),
+        secret_key=settings.objectstore_secret_key.get_secret_value(),
+        bucket=settings.objectstore_bucket,
+    )
+    try:
+        await ensure_bucket_exists(obj_cfg)
+        _log.info("objectstore_bucket_verified", bucket=settings.objectstore_bucket)
+    except Exception as exc:
+        _log.warning("objectstore_bucket_init_skipped", error=str(exc))
+
     # Everything is set up - hand control to FastAPI to serve requests.
     yield
 

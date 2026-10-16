@@ -80,6 +80,7 @@ async def test_alg_confusion_attacks_rejected(client: AsyncClient, test_user: Us
 async def test_secrets_never_appear_in_logs(
     client: AsyncClient,
     caplog: pytest.LogCaptureFixture,
+    db_session: AsyncSession,
 ) -> None:
     """Verify passwords, raw JWTs, refresh tokens, and CSRF tokens are never logged.
 

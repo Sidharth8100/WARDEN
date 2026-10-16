@@ -1,0 +1,13 @@
+{
+  "weights": {
+    "text_change_ratio": 0.45,
+    "is_numeric_only": 0.35,
+    "date_timestamp_hit_count": -0.40,
+    "dom_depth_score": 0.15,
+    "is_ad_or_banner": -0.40,
+    "simhash_difference_ratio": 0.20,
+    "tfidf_dissimilarity": 0.25,
+    "visual_change_coverage": 0.20
+  },
+  "threshold": 0.35
+}

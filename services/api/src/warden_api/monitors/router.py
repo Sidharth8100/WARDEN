@@ -729,3 +729,53 @@ async def remove_monitor_tag(
         created_at=monitor.created_at,
         tags=[t.name for t in monitor.tags],
     )
+
+
+# ---------------------------------------------------------------------------
+# Synchronous Pipeline Check (Gate 1)
+# ---------------------------------------------------------------------------
+
+
+class ChangeEventResponse(BaseModel):
+    id: int
+    monitor_id: uuid.UUID
+    from_snapshot_id: int | None
+    to_snapshot_id: int
+    detected_at: datetime
+    kind: str
+    score: float | None
+    meaningful: bool
+    features: dict[str, Any] | None = None
+    classifier_version: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+@router.post(
+    "/monitors/{monitor_id}/check",
+    response_model=ChangeEventResponse | None,
+    summary="Synchronously execute a single check on a monitor",
+)
+async def check_monitor(
+    monitor_id: uuid.UUID,
+    session: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+) -> Response | ChangeEventResponse:
+    """Run an end-to-end check on a monitor: fetch, diff, and classify.
+
+    Returns:
+    - 200 with ChangeEvent if a meaningful change was detected.
+    - 204 No Content if no meaningful change occurred, or on first baseline check.
+    """
+    stmt = select(Monitor).where(Monitor.id == monitor_id, Monitor.user_id == user.id)
+    monitor = (await session.execute(stmt)).scalars().first()
+    if not monitor:
+        raise APIError(status_code=404, title="Not Found", detail="Monitor not found")
+
+    from warden_api.pipeline import run_check
+
+    event = await run_check(session, monitor)
+    if event is None:
+        return Response(status_code=204)
+
+    return ChangeEventResponse.model_validate(event)

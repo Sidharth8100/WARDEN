@@ -6,7 +6,10 @@ dependencies = [
     "warden-core",
     "warden-db",
     "warden-net",
+    "warden-fetch",
+    "warden-compare",
     "warden-api",
+    "chaos-web",
     "redis>=8.1.0",
 ]
 
@@ -18,14 +21,20 @@ members = [
     "libs/warden_core",
     "libs/warden_db",
     "libs/warden_net",
+    "libs/warden_fetch",
+    "libs/warden_compare",
     "services/api",
+    "sim/chaos_web",
 ]
 
 [tool.uv.sources]
 warden-core = { workspace = true }
 warden-db = { workspace = true }
 warden-net = { workspace = true }
+warden-fetch = { workspace = true }
+warden-compare = { workspace = true }
 warden-api = { workspace = true }
+chaos-web = { workspace = true }
 
 [dependency-groups]
 dev = [
@@ -37,13 +46,15 @@ dev = [
     "pytest-cov>=7.1.0",
     "respx>=0.21.0",
     "ruff>=0.16.8",
+    "scikit-learn>=1.9.1",
+    "scipy>=1.18.1",
 ]
 
 
 
 [tool.pytest.ini_options]
-testpaths = ["libs", "services"]
-addopts = "--import-mode=importlib -m 'not integration and not student_todo'"
+testpaths = ["libs", "services", "sim"]
+addopts = "--import-mode=importlib -m 'not integration and not student_todo and not selenium and not chaos_web'"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 
@@ -55,6 +66,8 @@ asyncio_default_fixture_loop_scope = "function"
 markers = [
     "integration: requires a live PostgreSQL database (deselect with -m 'not integration')",
     "student_todo: tests for student-implemented functions (run with make check-todos)",
+    "selenium: requires a live Selenium Grid hub",
+    "chaos_web: requires a live chaos-web service",
 ]
 
 [tool.ruff]
@@ -71,15 +84,24 @@ extend-exclude = [
 select = ["E", "F", "I", "B", "UP", "S", "ASYNC", "SIM", "RUF"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["warden_core", "warden_db", "warden_net", "warden_api"]
+known-first-party = ["warden_core", "warden_db", "warden_net", "warden_fetch", "warden_compare", "warden_api", "chaos_web"]
 
 [tool.ruff.lint.per-file-ignores]
-"**/tests/**" = ["S101"]
+"**/tests/**" = ["S101", "S311"]
+"sim/**" = ["S311"]
 
 [tool.mypy]
 python_version = "3.12"
 strict = true
-mypy_path = ["libs/warden_core/src", "libs/warden_db/src", "libs/warden_net/src", "services/api/src"]
+mypy_path = [
+    "libs/warden_core/src",
+    "libs/warden_db/src",
+    "libs/warden_net/src",
+    "libs/warden_fetch/src",
+    "libs/warden_compare/src",
+    "services/api/src",
+    "sim/chaos_web/src",
+]
 explicit_package_bases = true
 
 # The pydantic mypy plugin teaches mypy how pydantic model fields work.

@@ -146,3 +146,42 @@ async def test_literal_decimal_ip_rejected():
     result = await validate_url_is_safe("http://2130706433/")
     assert not result.safe
     assert result.reason in ("loopback", "private")
+
+
+@pytest.mark.asyncio
+async def test_extra_allowed_hosts_overrides_ip_check_only_for_named_host():
+    """Verify extra_allowed_hosts permits the specified hostname despite private IP,
+
+    while other private hostnames remain strictly blocked.
+    """
+    with (
+        patch("warden_net.ssrf_check.resolve_host", return_value=[IPv4Address("10.0.0.5")]),
+        patch("warden_net.ssrf_check.is_blocked_ip", return_value="private"),
+    ):
+        allowlist = frozenset(["chaos-web"])
+
+        # Allowed host passes
+        res_allowed = await validate_url_is_safe(
+            "http://chaos-web/page", extra_allowed_hosts=allowlist
+        )
+        assert res_allowed.safe is True
+
+        # Non-allowed host with private IP is blocked
+        res_blocked = await validate_url_is_safe(
+            "http://other-internal/page", extra_allowed_hosts=allowlist
+        )
+        assert res_blocked.safe is False
+        assert res_blocked.reason == "private"
+
+
+def test_settings_default_ssrf_allowlist_is_empty():
+    """Verify Settings produces an empty allowlist by default (safe production default)."""
+    from pydantic import SecretStr
+
+    from warden_api.settings import Settings
+
+    s = Settings(
+        database_url=SecretStr("postgresql+asyncpg://u:p@localhost:5432/d"),
+        redis_url=SecretStr("redis://localhost:6379/0"),
+    )
+    assert s.ssrf_test_allowlist == ()

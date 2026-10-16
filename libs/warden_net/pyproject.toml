@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Safe URL canonicalization and fetch library for WARDEN"
 requires-python = ">=3.12"
 dependencies = [
+    "aioboto3>=15.5.0",
     "httpx>=0.28.1",
     "idna>=3.7",
     "tldextract>=5.1.0",

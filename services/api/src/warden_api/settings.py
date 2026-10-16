@@ -120,6 +120,19 @@ class Settings(BaseSettings):
         "$25a/S4cvOKLw1p9bW0+JpZ2OLGRVRz2h6D3V8c5jYYA"
     )
 
+    # Prompt 3 settings
+    objectstore_access_key: SecretStr = SecretStr("any")
+    objectstore_secret_key: SecretStr = SecretStr("any")
+    objectstore_endpoint: str = "http://objectstore:8333"
+    objectstore_bucket: str = "warden"
+
+    ssrf_test_allowlist: tuple[str, ...] = ()
+
+    selenium_hub_url: str = "http://selenium-hub:4444"
+    fetch_default_timeout_s: float = 15.0
+    fetch_max_bytes: int = 10_000_000
+    keyframe_interval: int = 20
+
     @model_validator(mode="before")
     @classmethod
     def set_cookie_secure(cls, data: Any) -> Any:

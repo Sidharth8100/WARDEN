@@ -14,7 +14,7 @@
 
 # .PHONY: tells Make that these are not file names - just command names.
 # Without this, if a file named "test" existed, `make test` would say "up to date".
-.PHONY: fmt lint types test check check-todos up down logs migrate-test revision
+.PHONY: fmt lint types test check check-todos up down logs migrate-test revision capture-pair evaluate
 
 # ==============================================================================
 # Code quality targets
@@ -35,7 +35,7 @@ lint:
 types:
 	# Run mypy static type checker on all source directories.
 	# strict mode: no Any, no missing return types, no untyped functions.
-	uv run mypy libs/warden_core/src libs/warden_db/src libs/warden_net/src services/api/src
+	uv run mypy libs/warden_core/src libs/warden_db/src libs/warden_net/src libs/warden_fetch/src libs/warden_compare/src services/api/src sim/chaos_web/src
 
 test:
 	# Run all tests (unit + integration if Postgres is reachable).
@@ -45,6 +45,14 @@ test:
 check-todos:
 	# Run tests for student-implemented functions (tagged with @pytest.mark.student_todo)
 	uv run pytest -q -m student_todo
+
+capture-pair:
+	# Run real pair capture script. Usage: make capture-pair URL=https://example.com
+	uv run python scripts/capture_real_pairs.py $(URL)
+
+evaluate:
+	# Run Gate 1 classifier evaluation script against sim and real pairs
+	uv run python scripts/evaluate_classifier.py
 
 check: lint types test
 	# The "golden gate" - run ALL quality gates in sequence.

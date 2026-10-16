@@ -148,6 +148,7 @@ services:
       WARDEN_ALEMBIC_INI_PATH: "/app/db/alembic.ini"
       WARDEN_LOG_LEVEL: "${WARDEN_LOG_LEVEL:-INFO}"
       WARDEN_JSON_LOGS: "${WARDEN_JSON_LOGS:-true}"
+      WARDEN_SSRF_TEST_ALLOWLIST: '["chaos-web"]'
     ports:
       # Bind to 127.0.0.1 ONLY - never 0.0.0.0 (project constraint).
       # The API is reachable from your laptop at http://localhost:18000
@@ -160,6 +161,55 @@ services:
         # (migration failed), the API will NOT start.
         condition: service_completed_successfully
       redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ============================================================================
+  # CHAOS-WEB - Synthetic test internet and ground truth generator.
+  # Serves page archetypes (price, jobs, app/SPA) with mutation engine and
+  # ground-truth log endpoints for classifier and pipeline evaluation.
+  # No published ports - reachable only within the Compose network.
+  # ============================================================================
+  chaos-web:
+    build:
+      context: .
+      dockerfile: sim/chaos_web/Dockerfile
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # ============================================================================
+  # SELENIUM-HUB - Central hub for Selenium Grid 4.
+  # Coordinates browser sessions dispatched to worker nodes (chrome).
+  # ============================================================================
+  selenium-hub:
+    image: selenium/hub:4.25.0
+    ports:
+      - "127.0.0.1:4444:4444"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4444/status"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # ============================================================================
+  # CHROME - Selenium Grid node running headless Chrome browser sessions.
+  # Requires shm_size: "2gb" to avoid browser rendering crashes.
+  # ============================================================================
+  chrome:
+    image: selenium/node-chrome:4.25.0
+    shm_size: "2gb"
+    environment:
+      SE_EVENT_BUS_HOST: selenium-hub
+      SE_EVENT_BUS_PUBLISH_PORT: 4442
+      SE_EVENT_BUS_SUBSCRIBE_PORT: 4443
+      SE_NODE_MAX_SESSIONS: 1
+    depends_on:
+      selenium-hub:
         condition: service_healthy
     restart: unless-stopped
 

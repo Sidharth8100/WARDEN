@@ -28,11 +28,16 @@ DEFAULT_DEV_DB_URL = "postgresql+asyncpg://warden:Flame%402005Kaiser@127.0.0.1:5
 
 
 def _is_postgres_reachable(host: str = "127.0.0.1", port: int = 5433) -> bool:
-    """Check whether Postgres is accepting connections on localhost:5433."""
+    """Check whether Postgres is accepting and responding to queries on localhost:5433."""
     try:
-        with socket.create_connection((host, port), timeout=0.5):
-            return True
-    except OSError:
+        with socket.create_connection((host, port), timeout=0.3) as s:
+            s.settimeout(0.3)
+            # Send standard PostgreSQL SSLRequest probe (code 80877103)
+            # Responsive Postgres servers immediately return b'N' (or b'S').
+            s.sendall(b"\x00\x00\x00\x08\x04\xd2\x16/")
+            resp = s.recv(1)
+            return len(resp) > 0
+    except (OSError, TimeoutError):
         return False
 
 
