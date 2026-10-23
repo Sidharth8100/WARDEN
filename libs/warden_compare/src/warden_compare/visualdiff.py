@@ -34,7 +34,7 @@ class VisualDiffResult:
 
 
 class DisjointSet:
-    """[YOU IMPLEMENT] A standard Union-Find / Disjoint Set Union
+    """A standard Union-Find / Disjoint Set Union
     structure over `n` elements (indices 0..n-1), supporting:
       - find(x): the representative of x's set, with PATH COMPRESSION.
       - union(x, y): merge the sets containing x and y, using UNION BY
@@ -54,19 +54,37 @@ class DisjointSet:
     """
 
     def __init__(self, n: int) -> None:
-        raise NotImplementedError("see docstring")
+        if n < 0:
+            raise ValueError("negative set size")
+        self.parent = list(range(n))
+        self.size = [1] * n
 
     def find(self, x: int) -> int:
-        raise NotImplementedError("see docstring")
+        if not 0 <= x < len(self.parent):
+            raise IndexError(x)
+        root = x
+        while self.parent[root] != root:
+            root = self.parent[root]
+        while x != root:
+            previous = self.parent[x]
+            self.parent[x] = root
+            x = previous
+        return root
 
     def union(self, x: int, y: int) -> None:
-        raise NotImplementedError("see docstring")
+        left, right = self.find(x), self.find(y)
+        if left == right:
+            return
+        if self.size[left] < self.size[right]:
+            left, right = right, left
+        self.parent[right] = left
+        self.size[left] += self.size[right]
 
 
 def cluster_changed_pixels(
     changed_mask: "np.ndarray[Any, np.dtype[np.bool_]]",
 ) -> list[BoundingBox]:
-    """[YOU IMPLEMENT] Given a 2D boolean array where True marks a
+    """Given a 2D boolean array where True marks a
     pixel that changed between two screenshots, find CONNECTED
     COMPONENTS of changed pixels (4-connectivity: up/down/left/right,
     not diagonal — state this choice) and return one bounding box
@@ -93,7 +111,29 @@ def cluster_changed_pixels(
     images — worth avoiding, though not strictly required for
     correctness on test-sized images).
     """
-    raise NotImplementedError("see docstring")
+    if changed_mask.ndim != 2:
+        raise ValueError("changed_mask must be a rectangular 2D array")
+    height, width = changed_mask.shape
+    groups = DisjointSet(height * width)
+    for row, col in np.argwhere(changed_mask):
+        row, col = int(row), int(col)
+        cell = row * width + col
+        if row and changed_mask[row - 1, col]:
+            groups.union(cell, cell - width)
+        if col and changed_mask[row, col - 1]:
+            groups.union(cell, cell - 1)
+    bounds: dict[int, BoundingBox] = {}
+    for row, col in np.argwhere(changed_mask):
+        row, col = int(row), int(col)
+        root = groups.find(row * width + col)
+        previous = bounds.get(root, BoundingBox(row, col, row, col))
+        bounds[root] = BoundingBox(
+            min(previous.min_row, row),
+            min(previous.min_col, col),
+            max(previous.max_row, row),
+            max(previous.max_col, col),
+        )
+    return sorted(bounds.values(), key=lambda b: (b.min_row, b.min_col, b.max_row, b.max_col))
 
 
 def diff_screenshots(

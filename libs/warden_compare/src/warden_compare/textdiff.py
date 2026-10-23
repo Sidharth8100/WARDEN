@@ -29,7 +29,7 @@ EditScript = list[Op]
 
 
 def compute_edit_script(source: list[str], target: list[str]) -> EditScript:
-    """[YOU IMPLEMENT] Compute the SHORTEST edit script transforming
+    """Compute the SHORTEST edit script transforming
     `source` into `target` using Myers' O(ND) diff algorithm, where N
     is len(source)+len(target) and D is the size of the actual edit
     distance. Return an EditScript: an ordered list of Op values, each
@@ -68,7 +68,69 @@ def compute_edit_script(source: list[str], target: list[str]) -> EditScript:
     and for matching how Day 6's tree diff will later use this same
     function at a different granularity.
     """
-    raise NotImplementedError("see docstring")
+    frontier = {1: 0}
+    trace: list[dict[int, int]] = []
+    distance = 0
+    found = False
+    for distance in range(len(source) + len(target) + 1):
+        trace.append(frontier.copy())
+        for diagonal in range(-distance, distance + 1, 2):
+            if diagonal == -distance or (
+                diagonal != distance
+                and frontier.get(diagonal - 1, -1) < frontier.get(diagonal + 1, -1)
+            ):
+                x = frontier.get(diagonal + 1, 0)
+            else:
+                x = frontier.get(diagonal - 1, 0) + 1
+            y = x - diagonal
+            while x < len(source) and y < len(target) and source[x] == target[y]:
+                x += 1
+                y += 1
+            frontier[diagonal] = x
+            if x >= len(source) and y >= len(target):
+                found = True
+                break
+        if found:
+            break
+    x, y = len(source), len(target)
+    reverse_ops: EditScript = []
+    for level in range(distance, 0, -1):
+        previous = trace[level]
+        diagonal = x - y
+        if diagonal == -level or (
+            diagonal != level and previous.get(diagonal - 1, -1) < previous.get(diagonal + 1, -1)
+        ):
+            predecessor = diagonal + 1
+        else:
+            predecessor = diagonal - 1
+        old_x = previous[predecessor]
+        old_y = old_x - predecessor
+        while x > old_x and y > old_y:
+            reverse_ops.append(Keep(1))
+            x -= 1
+            y -= 1
+        if x == old_x:
+            y -= 1
+            reverse_ops.append(Insert([target[y]]))
+        else:
+            x -= 1
+            reverse_ops.append(Delete(1))
+    while x > 0 and y > 0:
+        reverse_ops.append(Keep(1))
+        x -= 1
+        y -= 1
+    result: EditScript = []
+    for op in reversed(reverse_ops):
+        previous_op = result[-1] if result else None
+        if isinstance(op, Keep) and isinstance(previous_op, Keep):
+            result[-1] = Keep(previous_op.n + 1)
+        elif isinstance(op, Delete) and isinstance(previous_op, Delete):
+            result[-1] = Delete(previous_op.n + 1)
+        elif isinstance(op, Insert) and isinstance(previous_op, Insert):
+            result[-1] = Insert(previous_op.items + op.items)
+        else:
+            result.append(op)
+    return result
 
 
 def apply_edit_script(source: list[str], script: EditScript) -> list[str]:

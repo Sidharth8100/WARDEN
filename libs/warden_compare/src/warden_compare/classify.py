@@ -1,7 +1,9 @@
 """Feature extraction, student TF-IDF stub, and rule-weighted linear classifier v1."""
 
 import json
+import math
 import re
+from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -33,44 +35,33 @@ def tfidf_cosine_similarity(
     doc_b_tokens: list[str],
     corpus_tokenized: list[list[str]],
 ) -> float:
-    """[YOU IMPLEMENT] Compute the cosine similarity between doc_a and
-    doc_b's TF-IDF vectors, where IDF is computed from `corpus_tokenized`
-    (the set of documents establishing how common/rare each term is —
-    in this project, the corpus is the monitor's own snapshot history).
-    Return a value in [0.0, 1.0] (1.0 = identical direction, meaning
-    very similar; cosine similarity is technically in [-1,1] but
-    TF-IDF weights are non-negative, so it never goes below 0 here —
-    confirm this is true and note it).
+    """Smoothed TF-IDF cosine; idf=log((1+N)/(1+df))+1.
 
-    Do not use scikit-learn, gensim, or any other vectorization
-    library in this function's implementation.
-
-    Hint L1: TF (term frequency) is just "how often does this term
-    appear in THIS document". IDF (inverse document frequency) is
-    "how rare is this term ACROSS THE WHOLE CORPUS" — common words
-    like 'the' get a low IDF (they appear everywhere, so they're not
-    discriminating), rare words get a high IDF. TF-IDF for a term in
-    a document is tf * idf. Cosine similarity between two vectors is
-    their dot product divided by the product of their magnitudes.
-    Hint L2: a standard formula is idf(t) = ln(N / (1 + df(t))) where
-    N is corpus size and df(t) is the number of corpus documents
-    containing t at least once (the +1 avoids division by zero for a
-    term that appears in every single document). Build each
-    document's TF-IDF vector as a dict {term: weight} (a sparse
-    representation — do not materialize a dense vector over the full
-    vocabulary, that wastes memory for no benefit here). Cosine
-    similarity over two sparse dicts: sum the product of shared
-    terms' weights, divide by (sqrt(sum of a's weights squared) *
-    sqrt(sum of b's weights squared)).
-    Hint L3: handle the zero-vector edge case explicitly (an empty
-    document, or a document with no terms that survive — e.g. if you
-    choose to drop terms appearing in EVERY document as pure stopword
-    noise, which is a legitimate design choice but must be decided
-    and documented, not accidental) — cosine similarity is undefined
-    (0/0) when either vector has zero magnitude; decide and document
-    what you return in that case (0.0 is a reasonable, common choice).
+    Match the established sklearn oracle, with vocabulary learned only from the
+    supplied corpus. Empty/unknown-token vectors return zero. No external
+    vectorization dependency is used by the application implementation.
     """
-    raise NotImplementedError("see docstring")
+    if not corpus_tokenized or not doc_a_tokens or not doc_b_tokens:
+        return 0.0
+    frequencies: Counter[str] = Counter()
+    for document in corpus_tokenized:
+        frequencies.update(set(document))
+    size = len(corpus_tokenized)
+
+    def vector(tokens: list[str]) -> dict[str, float]:
+        return {
+            word: count * (math.log((1 + size) / (1 + frequencies[word])) + 1)
+            for word, count in Counter(tokens).items()
+            if word in frequencies
+        }
+
+    left, right = vector(doc_a_tokens), vector(doc_b_tokens)
+    norm = math.sqrt(sum(v * v for v in left.values()) * sum(v * v for v in right.values()))
+    if norm == 0:
+        return 0.0
+    return min(
+        1.0, max(0.0, sum(value * right.get(word, 0) for word, value in left.items()) / norm)
+    )
 
 
 @dataclass(frozen=True)

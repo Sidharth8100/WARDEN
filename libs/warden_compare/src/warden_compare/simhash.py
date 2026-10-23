@@ -1,8 +1,11 @@
 """SimHash near-duplicate fingerprinting stub and Hamming distance."""
 
+import hashlib
+from collections import Counter
+
 
 def compute_simhash(text: str, *, hash_bits: int = 64, shingle_size: int = 4) -> int:
-    """[YOU IMPLEMENT] Compute a SimHash fingerprint of `text` as an
+    """Compute a SimHash fingerprint of `text` as an
     unsigned integer with `hash_bits` bits, for near-duplicate
     detection: similar documents should produce fingerprints with a
     SMALL Hamming distance (few differing bits), dissimilar documents
@@ -40,7 +43,21 @@ def compute_simhash(text: str, *, hash_bits: int = 64, shingle_size: int = 4) ->
     produces identical fingerprints; the function is otherwise
     deterministic (same input, same output, always).
     """
-    raise NotImplementedError("see docstring")
+    if not 1 <= hash_bits <= 512 or shingle_size < 1:
+        raise ValueError("hash_bits must be 1..512 and shingle_size positive")
+    normalized = " ".join(text.split())
+    if not normalized:
+        return 0
+    shingles = Counter(
+        normalized[i : i + shingle_size] for i in range(max(1, len(normalized) - shingle_size + 1))
+    )
+    votes = [0] * hash_bits
+    for shingle, weight in shingles.items():
+        digest = hashlib.blake2b(shingle.encode(), digest_size=(hash_bits + 7) // 8).digest()
+        value = int.from_bytes(digest, "big")
+        for index in range(hash_bits):
+            votes[index] += weight if value & (1 << index) else -weight
+    return sum(1 << index for index, vote in enumerate(votes) if vote > 0)
 
 
 def hamming_distance(a: int, b: int) -> int:

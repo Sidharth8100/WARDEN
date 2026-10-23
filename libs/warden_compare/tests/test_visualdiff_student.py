@@ -134,10 +134,12 @@ class TestClusterChangedPixelsStudent:
 
     @settings(max_examples=25, deadline=None)
     @given(
-        grid_data=st.lists(
-            st.lists(st.booleans(), min_size=5, max_size=10),
-            min_size=5,
-            max_size=10,
+        grid_data=st.tuples(st.integers(5, 10), st.integers(5, 10)).flatmap(
+            lambda dimensions: st.lists(
+                st.lists(st.booleans(), min_size=dimensions[1], max_size=dimensions[1]),
+                min_size=dimensions[0],
+                max_size=dimensions[0],
+            )
         )
     )
     def test_hypothesis_agreement_with_bfs_reference_oracle(self, grid_data: list[list[bool]]):
