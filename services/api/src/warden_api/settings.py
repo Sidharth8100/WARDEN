@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     Fields without defaults are REQUIRED - the app will refuse to start if missing.
     Fields with defaults are optional and fall back to sensible values.
 
-    REQUIRED (must be in .env or the environment):
+    REQUIRED (runtime environment; Compose injects the values):
       WARDEN_DATABASE_URL  - PostgreSQL connection string
       WARDEN_REDIS_URL     - Redis connection string
 
@@ -70,15 +70,14 @@ class Settings(BaseSettings):
 
     # SettingsConfigDict replaces the old inner `class Config`.
     # env_prefix: all env vars must start with WARDEN_
-    # env_file: also read from .env file if present (useful for local dev)
-    # env_file_encoding: standard utf-8
+    # env_file=None: never implicitly open a local credential file.
+    # Compose or the operator supplies process environment values.
     model_config = SettingsConfigDict(
         env_prefix="WARDEN_",
         env_file=None,
         env_file_encoding="utf-8",
-        # extra="ignore" means unknown WARDEN_* variables in .env are silently
-        # ignored rather than raising a validation error. This is important
-        # because .env also contains POSTGRES_* variables for Docker Compose.
+        # Ignore unrelated runtime configuration rather than rejecting it.
+        # Credential files are not loaded by this Settings class.
         extra="ignore",
     )
 

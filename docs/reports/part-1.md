@@ -6,13 +6,20 @@ before running operational commands. The shared Report Spec mentioned in the
 attachment was not included; this report covers the supplied concept list,
 measured enhancement, implementation, verification, learning exercises and handoff.
 
-**Status: implementation and isolated verification are complete; the live Compose
-Gate 2 is blocked and has not passed.** Human credential provisioning was confirmed
-ready. All service images built. Starting the stack failed because Docker's existing
-`warden_default` network references a missing bridge device. No Docker daemon,
-network, subnet, capabilities or host networking configuration was changed. A
-request for the human to restore their existing campus-network setup is pending.
-Do not present the isolated tests as the several-hundred-job SIGKILL deployment proof.
+**Status: code and isolated verification pass; live Gate 2 is incomplete.** After
+the human's conditional go-ahead, WARDEN's stale Compose network was recreated
+without changing daemon settings or deleting volumes. This restored connectivity,
+but allocated 172.17.0.0/16 and reintroduced the human's Ethernet problem. The human
+manually deleted the bridge and then explicitly chose **keeping Docker stopped
+until the host address-pool fix is corrected**. All WARDEN containers are stopped.
+No further network recreation, container start or daemon change is authorized yet.
+
+Before interruption, live S3 permission checks and the cross-replica WebSocket
+phase passed. A local PostgreSQL audit found 421 completed and 82 queued
+proof-related receipts (including baseline/automatic checks), with no failed
+receipts. That is unfinished work, not a 500/500 zero-loss proof. Read the
+[network handoff](../DOCKER_NETWORK_RECOVERY.md) and
+[interrupted-attempt record](part-1-live-attempt.json) before continuing.
 
 ## 1. What this part changed
 
@@ -207,8 +214,8 @@ Authentication uses the existing JWT/denylist/database checks. The first frame
 contains the token, avoiding tokens in URL logs. Monitor IDs and tags are scoped
 to their owner. Browser origins, input sizes, subscription counts, frame deadline,
 send deadline, JWT expiry and revocation are checked. A client cannot request
-another owner's monitor. The two-replica Compose topology is configured, but its
-actual cross-replica demonstration remains blocked by the Docker network.
+another owner's monitor. The live two-replica phase passed before the network interruption; the full
+crash/recovery gate remains incomplete.
 
 Replay is finite: the Stream is approximately capped at 100,000 entries, append
 idempotency keys expire after seven days and the gateway's recent-event cache holds
@@ -452,12 +459,12 @@ change the winner. Fair baselines use the same budget, trace and bounds.
 
 ### Checks actually run
 
-- `make check`: **252 passed, 21 skipped, 37 deselected**; ruff and formatting
-  passed; strict mypy passed on 73 source files. Tests ran outside the filesystem/
+- `make check`: **252 passed, 21 skipped, 38 deselected**; ruff and formatting
+  passed; strict mypy passed on 74 source files. Tests ran outside the filesystem/
   network sandbox so TestClient's local sockets could function.
 - `make check-todos`: **66 passed, 4 skipped**. All four algorithm groups execute;
   legacy deployment denylist cases require an explicitly configured test identity.
-- Real PostgreSQL + Redis integration suite: **14 passed**. Private fixture-owned
+- Real PostgreSQL + Redis integration suite: **15 passed**. Private fixture-owned
   Unix sockets, no published TCP ports, no deployment credentials. The PostgreSQL
   fixture exercises the actual Alembic migration chain.
 - Redis tests include 1,000 concurrent cache writes (limit 16), 200 concurrent GCRA
@@ -469,16 +476,19 @@ change the winner. Fair baselines use the same budget, trace and bounds.
   meaningful-change/outbox effect, and global fence rejection after takeover.
 - Gateway tests cover confirmed subscribe-before-replay ordering, filtering another
   owner's event, unauthorized subscriptions, malformed frames, retention resync
-  and cross-origin rejection. They are protocol tests with doubles, not a live
-  two-replica deployment demonstration.
-- `docker compose up --build -d`: images built, container startup failed on the
-  missing existing Docker bridge. Existing PostgreSQL, mailpit and Selenium
-  services remain running; newly created application containers are not claimed
-  healthy. No volumes were deleted.
+  and cross-origin rejection. The unit cases use doubles; the live cross-replica
+  phase also succeeded before the interrupted crash run.
+- Image builds passed. After a one-time authorized recreation, migrations and
+  object bootstrap completed and the APIs/workers ran. The live run was later
+  interrupted by deletion of the conflicting bridge. All containers are now
+  stopped; named volumes are retained.
+- The operator-ledger integration case rejects non-proof targets, stages a batch,
+  processes duplicates and audits three snapshots plus one event/outbox against
+  their receipts. Database credentials remain inside the trusted container.
 
 The default suite intentionally excludes explicitly marked integration/Selenium/
 chaos tests. A green default command does not prove those excluded checks passed.
-The additional 14 real protocol checks are listed separately for that reason.
+The additional 15 real protocol checks are listed separately for that reason.
 A Starlette/httpx TestClient deprecation warning remains; adding its suggested
 replacement dependency is outside the approved dependency list.
 
@@ -516,25 +526,63 @@ recall remain unmeasured; selectors/rules and a held-out labeled corpus are stil
 needed. The Gate 2 price-monitor probe validates queue and cross-replica behavior,
 not classifier generalization across the web.
 
-### Live Gate 2: not yet executed
+### Live Gate 2: attempted, interrupted, not passed
 
-`scripts/chaos_queue_proof.py` is ready to submit 500 accepted jobs, randomly SIGKILL
-and restart fetcher/processor, wait for all accepted IDs, audit snapshot receipt
-uniqueness and count actual reclaims. It first checks image isolation, fetcher
-storage write success, processor read success and an actual HTTP 403 on processor
-write. The denial probe writes the same content-addressed bytes if permissions
-are accidentally broad, avoiding corruption even in the failing case.
+The initial missing bridge was the result of host-level deletion, not an API port
+collision. After the human's conditional “if not go ahead,” the agent used Compose
+down without `-v` and up to recreate the project's runtime network/containers.
+Named data volumes were preserved; daemon settings/subnet declarations/ports were
+not edited. The recreated network allocated 172.17.0.0/16. The agent should have
+checked the host/campus routing constraint before recreating it: the human had to
+delete that bridge again to restore Ethernet.
 
-It also opens a WebSocket on API 2, mutates the simulator and submits a check via
-API 1, then verifies receipt of the resulting event and no immediate duplicate.
-The reported latency includes fetch/processing, not just socket transport. Cleanup
-restarts the workers it kills. The script refuses to report a successful kill run
-without at least two kills and one reclaimed entry.
+Observed `docker0` already used 10.200.0.0/24, while the separate Compose network
+used 172.17.0.0/16. The Ethernet gateway was 10.23.32.1. A campus destination caught
+by the 172.17 route was not identified, so a specific conflicting gateway address
+must not be invented. Changing API ports would not change the host subnet route.
+Docker's default address pools for user-defined networks need human-owned review;
+configuring only the built-in bridge does not cover Compose networks.
 
-No `part-1-gate2.json` success artifact exists. Do not fill in zero-loss numbers
-until the script really completes on the running stack. Redis AOF everysec is not
-zero-loss storage in a Redis/host crash; this proof concerns worker crashes while
-PostgreSQL, Redis and object storage remain available and retained.
+The live attempt established several things before interruption:
+
+- Fetcher image imports/environment passed the database-isolation checks.
+- Fetcher could upload a probe; processor could read it; processor upload was
+  rejected with HTTP **403**. The denial probe uses identical content-addressed
+  bytes, so an unexpectedly allowed write would not corrupt an existing object.
+- Authenticated login initially exposed a bind-mount UID mismatch. Local API
+  containers now use the non-root host UID/GID through development-only settings;
+  private key contents and owner-only permissions were not changed. Production
+  images retain UID 10001.
+- A WebSocket connected to API 2 received the change submitted through API 1 and
+  passed its immediate duplicate check. The run then staged 500 jobs; reaching
+  that batch phase establishes completion of the preceding WebSocket phase.
+- The crash loop started. After bridge deletion, the trusted ledger's network
+  connection timed out and worker restart cleanup also failed. No full kill
+  timeline, reclaim total or latency was saved, so none is invented.
+- A subsequent audit through PostgreSQL's local Unix socket found **421 completed,
+  82 queued, zero failed receipts and 421 snapshots** across proof-related monitors.
+  Its 503 receipts include baseline/automatic jobs; these counts are not a final
+  exact audit of the 500 batch IDs. Persisted queued work is retained for recovery.
+
+See [the explicit incomplete-attempt artifact](part-1-live-attempt.json). There is
+**no successful `part-1-gate2.json`** and no claim of zero permanently lost jobs.
+The human then selected keeping Docker stopped until the host address-pool fix is
+corrected; all WARDEN containers were stopped without deleting volumes or touching
+routes again. See [the operational handoff](../DOCKER_NETWORK_RECOVERY.md).
+
+The proof now queries PostgreSQL through an operator-only CLI inside the trusted
+scheduler; DB credentials are never exported to the host. It limits batches to
+Gate 2 simulator monitors, audits snapshot/event/outbox counts against receipt
+references, bounds subprocess duration and preserves the original error if cleanup
+fails. Progress records include batch identity and kill events for a future attempt.
+These latest audit improvements pass the private integration fixture but have not
+been redeployed while Docker is held stopped.
+
+After the host fix, rerun the complete proof with a fresh monitor and require
+500/500 completed IDs, no failed/lost accepted IDs, matching snapshot/event/outbox
+receipt effects, at least two kills and at least one actual reclaim. Redis AOF
+`everysec` is not zero-loss storage in a Redis/host crash; this proof concerns worker
+crashes while PostgreSQL, Redis and object storage remain available and retained.
 
 ## 6. Limits that matter before production
 
@@ -628,7 +676,7 @@ not a copy of the source code.
 | Can a Bloom false positive lose a change? | It must not: the caller verifies exact content before skipping. The probabilistic structure is only an optimization. |
 | Why not optimize exact freshness? | The square-root rule optimizes a small-λI approximation; exact objectives may require a different solver. We evaluate actual stale time separately. |
 | What did you personally write? | The current Part 1 implementation was AI-authored. Explain what you studied, independently verified or later changed, and point to the authorship ledger. |
-| Is Gate 2 passed? | No. Builds and isolated tests passed; the live Docker deployment proof is blocked by an existing missing bridge. |
+| Is Gate 2 passed? | No. Live storage permissions and cross-replica delivery passed, but the 500-job crash run was interrupted by removal of a conflicting Docker bridge. Docker is held stopped until the host pool fix. |
 | Is the classifier accurate enough? | v2 passed 210 seeded synthetic regression pairs after fixing a v1 recall problem. No labeled real evaluation set exists, so real-world quality remains unmeasured. |
 
 A strong answer has five parts: **requirement → invariant → failure example →
@@ -688,31 +736,28 @@ Part 1, especially **actual live Gate 2 proof**. Do not mark it complete because
 default tests pass. The human confirmed “credentials ready”; no need to request
 credential generation again, read credential files, or run the generator.
 
-1. Await the human's **“Docker network ready”** response or equivalent confirmation
-   that their existing campus-network setup has been restored. Current failure:
-   `adding interface ... to bridge br-410b9f108109 failed: Device does not exist`.
-   Never repair daemon/network configuration yourself. No auto-review rejection
-   caused this blocker; it is an actual Docker daemon error and a standing-rule
-   boundary.
-2. Rebuild/start with `docker compose up --build -d`, then inspect **safe service
-   status**. Never dump Compose config, credential files or raw environments.
-   Migration `e021a1000001` must apply. Verify Redis identity permissions, object
-   bootstrap completion, fetcher package closure and read-only processor S3 with
-   the actual proof. A build alone does not prove runtime permissions.
-3. The host proof needs `WARDEN_DATABASE_URL` with the existing human-owned DB
-   credentials and host `127.0.0.1:5433`. Human setup instructions already explain
-   this. Do not invent or print a password. The human may need to run the proof in
-   their own shell if that URL is not available to the agent's environment:
+1. The latest human instruction is **keep Docker stopped until the host
+   address-pool fix is corrected**. All WARDEN containers are stopped; the daemon
+   itself was not stopped/reconfigured. Never repeat the previous automatic
+   network recreation. Read `docs/DOCKER_NETWORK_RECOVERY.md` and obtain the human's
+   confirmation of the corrected host policy and permission to resume.
+2. The default bridge uses 10.200.0.0/24; stale WARDEN metadata still specifies
+   172.17.0.0/16 although its host bridge was deleted. Address-pool changes do not
+   rewrite existing network allocations. The host owner must handle stale metadata
+   and daemon restart ordering without losing named volumes or recreating the
+   conflict. Do not choose a replacement CIDR from private ranges blindly.
+3. After explicit clearance, build updated images and safely recreate the project
+   network under the corrected policy. Check its actual allocated subnet/route
+   before application startup. Local API UID/GID mapping must match the owner of
+   the existing read-only JWT keys. Do not open/chmod/copy secrets or run as root.
+4. Resume the queued accepted jobs already on disk. Then run a fresh 500-job proof:
    `uv run --env-file .runtime/proof.env python scripts/chaos_queue_proof.py --jobs 500 --kill-workers`.
-4. Require actual completion, at least two SIGKILLs, at least one reclaim, 500/500
-   completed receipts, no failed/lost accepted IDs and one snapshot effect per
-   job. Inspect the actual generated `docs/reports/part-1-gate2.json`; do not create
-   a success artifact manually. Confirm cross-replica WebSocket and S3 403 evidence.
-   If a target/dependency fails, fix the cause and rerun with a fresh proof monitor.
-5. Update this report and the authorship ledger with real outcomes, then rerun
-   `make check`. The last verified default suite is 252 passed/21 skipped; explicit
-   private PostgreSQL/Redis tests are 14 passed. The strengthened claim-renewal A/B
-   test and v2 durable-event transaction passed in the final integration run.
+   No host database URL/password is needed: the ledger CLI uses scheduler's
+   existing trusted environment. Require the full receipt/effect/reclaim audit;
+   the interrupted 421-completed/82-queued aggregate is not a Gate 2 pass.
+5. Update report/authorship with real outcomes and rerun `make check`. The current
+   default suite is 252 passed/21 skipped; explicit private PostgreSQL/Redis
+   integration is 15 passed, including the scoped operator-ledger effect audit.
 6. Keep the pre-existing uncommitted `libs/warden_core/src/warden_core/ssrf.py`
    separate. Its diff is 153 insertions/47 deletions; never overwrite or silently
    attribute it. Existing older learning files and `docs/reports/prompt-04.md`

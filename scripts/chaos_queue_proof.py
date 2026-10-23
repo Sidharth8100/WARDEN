@@ -7,21 +7,17 @@ container-env dumps, or credential-bearing log output. Restarts workers in final
 
 import argparse
 import asyncio
-import contextlib
 import json
 import os
 import secrets
+import sys
 import time
 import uuid
 from pathlib import Path
 
 import httpx
-from sqlalchemy import func, select
 from websockets.asyncio.client import connect as websocket_connect
 
-from warden_db.dispatch import stage_check
-from warden_db.models import CrawlJob, Monitor, Snapshot
-from warden_db.session import make_engine, make_sessionmaker
 from warden_redis.client import connect
 
 
@@ -33,7 +29,13 @@ async def compose(*arguments: str) -> str:
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    output, _ = await process.communicate()
+    try:
+        output, _ = await asyncio.wait_for(process.communicate(), 30)
+    except (TimeoutError, asyncio.CancelledError):
+        if process.returncode is None:
+            process.kill()
+        await process.wait()
+        raise
     if process.returncode:
         raise RuntimeError(
             f"Compose {arguments[0]} failed; inspect locally without sharing secrets"
@@ -107,9 +109,38 @@ async def storage_boundary() -> None:
         raise RuntimeError("processor storage permissions probe failed")
 
 
+async def ledger(
+    action: str,
+    monitor_id: uuid.UUID,
+    *,
+    ids: list[uuid.UUID] | None = None,
+    count: int | None = None,
+) -> dict:
+    """Query the durable oracle inside scheduler; never export its DB credentials.
+
+    Scheduler remains alive while the proof kills fetcher/processor. This operator
+    CLI is restricted to Gate 2 simulator monitors and exposes no network service.
+    """
+    arguments = []
+    if ids is not None:
+        arguments.extend(("--job-ids", json.dumps([str(identity) for identity in ids])))
+    if count is not None:
+        arguments.extend(("--count", str(count)))
+    output = await compose(
+        "exec",
+        "-T",
+        "scheduler",
+        "python",
+        "-m",
+        "warden_db.proof_ledger",
+        action,
+        str(monitor_id),
+        *arguments,
+    )
+    return json.loads(output)
+
+
 async def run(args: argparse.Namespace) -> dict[str, object]:
-    engine = make_engine(os.environ["WARDEN_DATABASE_URL"])
-    sessions = make_sessionmaker(engine)
     redis = connect(os.environ["WARDEN_REDIS_URL"], "scheduler")
     stop = asyncio.Event()
     kills: list[dict[str, object]] = []
@@ -117,17 +148,27 @@ async def run(args: argparse.Namespace) -> dict[str, object]:
     page = f"gate2-{uuid.uuid4().hex}"
     started = time.monotonic()
 
-    async def wait_completed(ids: list[uuid.UUID]) -> list[CrawlJob]:
+    async def wait_completed(monitor_id: uuid.UUID, ids: list[uuid.UUID]) -> list[dict]:
         deadline = time.monotonic() + args.timeout
+        last_progress = 0.0
         while time.monotonic() < deadline:
-            async with sessions() as session:
-                rows = list(
-                    (await session.scalars(select(CrawlJob).where(CrawlJob.id.in_(ids)))).all()
+            rows = (await ledger("status", monitor_id, ids=ids))["receipts"]
+            if any(row["status"] == "failed" for row in rows):
+                raise RuntimeError("accepted job terminated in failure; Gate 2 did not pass")
+            if len(rows) == len(ids) and all(row["status"] == "completed" for row in rows):
+                return rows
+            if time.monotonic() - last_progress >= 10:
+                print(
+                    json.dumps(
+                        {
+                            "phase": "waiting",
+                            "accepted": len(ids),
+                            "completed": sum(row["status"] == "completed" for row in rows),
+                        }
+                    ),
+                    flush=True,
                 )
-                if any(row.status == "failed" for row in rows):
-                    raise RuntimeError("accepted job terminated in failure; Gate 2 did not pass")
-                if len(rows) == len(ids) and all(row.status == "completed" for row in rows):
-                    return rows
+                last_progress = time.monotonic()
             await asyncio.sleep(0.25)
         raise TimeoutError("some accepted jobs remained unfinished at the proof deadline")
 
@@ -143,6 +184,7 @@ async def run(args: argparse.Namespace) -> dict[str, object]:
             )
             await compose("kill", "--signal", "SIGKILL", service)
             kills.append({"service": service, "at_s": time.monotonic() - started})
+            print(json.dumps({"phase": "killed", **kills[-1]}), flush=True)
             await asyncio.sleep(0.15)
             await compose("start", service)
 
@@ -185,7 +227,7 @@ async def run(args: argparse.Namespace) -> dict[str, object]:
             baseline = await api.post(f"/api/monitors/{monitor_id}/check", headers=headers)
             baseline.raise_for_status()
             baseline_id = uuid.UUID(baseline.json()["job_id"])
-            await wait_completed([baseline_id])
+            await wait_completed(monitor_id, [baseline_id])
             # Connect to api2; submit the meaningful check through api1.
             async with websocket_connect(args.websocket, open_timeout=10) as socket:
                 await socket.send(
@@ -200,7 +242,7 @@ async def run(args: argparse.Namespace) -> dict[str, object]:
                 begin_live = time.monotonic()
                 check = await api.post(f"/api/monitors/{monitor_id}/check", headers=headers)
                 check.raise_for_status()
-                await wait_completed([uuid.UUID(check.json()["job_id"])])
+                await wait_completed(monitor_id, [uuid.UUID(check.json()["job_id"])])
                 event = None
                 for _ in range(100):
                     message = json.loads(await asyncio.wait_for(socket.recv(), 10))
@@ -223,33 +265,25 @@ async def run(args: argparse.Namespace) -> dict[str, object]:
                     pass
             before_reclaims = int(await redis.get("warden:metrics:reclaimed") or 0)
             before_retries = int(await redis.get("warden:metrics:retries") or 0)
-            async with sessions() as session, session.begin():
-                monitor = await session.get(Monitor, monitor_id, with_for_update=True)
-                if monitor is None:
-                    raise RuntimeError("proof monitor missing")
-                jobs = [stage_check(session, monitor) for _ in range(args.jobs)]
+            staged = await ledger("stage", monitor_id, count=args.jobs)
+            print(
+                json.dumps({"phase": "staged", "monitor_id": str(monitor_id), "jobs": args.jobs}),
+                flush=True,
+            )
             task = asyncio.create_task(chaos())
-            ids = [uuid.UUID(job.job_id) for job in jobs]
-            rows = await wait_completed(ids)
+            ids = [uuid.UUID(identity) for identity in staged["job_ids"]]
+            rows = await wait_completed(monitor_id, ids)
             stop.set()
             await task
             task = None
-            snapshots = [row.snapshot_id for row in rows]
+            snapshots = [row["snapshot_id"] for row in rows]
             if any(identity is None for identity in snapshots) or len(set(snapshots)) != len(ids):
                 raise RuntimeError("missing or duplicate per-job snapshot effects")
-            async with sessions() as session:
-                actual = await session.scalar(
-                    select(func.count())
-                    .select_from(Snapshot)
-                    .where(Snapshot.monitor_id == monitor_id)
-                )
-                effects = await session.scalar(
-                    select(func.count())
-                    .select_from(CrawlJob)
-                    .where(CrawlJob.monitor_id == monitor_id, CrawlJob.snapshot_id.is_not(None))
-                )
-                if actual != effects:
-                    raise RuntimeError("snapshot without exactly one durable job receipt")
+            audit = await ledger("audit", monitor_id)
+            if audit["actual_snapshots"] != audit["receipt_snapshots"]:
+                raise RuntimeError("snapshot without exactly one durable job receipt")
+            if not audit["actual_events"] == audit["receipt_events"] == audit["event_outboxes"]:
+                raise RuntimeError("event/outbox without exactly one durable job receipt")
             reclaimed = int(await redis.get("warden:metrics:reclaimed") or 0) - before_reclaims
             retries = int(await redis.get("warden:metrics:retries") or 0) - before_retries
             if args.kill_workers and (len(kills) < 2 or reclaimed < 1):
@@ -258,6 +292,7 @@ async def run(args: argparse.Namespace) -> dict[str, object]:
                 )
             return {
                 "jobs": args.jobs,
+                "monitor_id": str(monitor_id),
                 "completed": len(rows),
                 "lost": 0,
                 "duplicate_durable_effects": 0,
@@ -269,19 +304,29 @@ async def run(args: argparse.Namespace) -> dict[str, object]:
                 "cross_replica_end_to_end_s": live_seconds,
                 "fetcher_database_packages_absent": True,
                 "processor_storage_read_allowed_write_denied": True,
+                "durable_effect_audit": audit,
             }
     finally:
         stop.set()
         if task:
             task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
+            await asyncio.gather(task, return_exceptions=True)
         try:
-            if args.kill_workers:
-                await compose("start", "fetcher", "processor")
+            if args.kill_workers and kills:
+                try:
+                    await compose("start", "fetcher", "processor")
+                except (RuntimeError, TimeoutError) as exc:
+                    print(
+                        json.dumps(
+                            {
+                                "cleanup": "workers_not_restored",
+                                "category": type(exc).__name__,
+                            }
+                        ),
+                        file=sys.stderr,
+                    )
         finally:
             await redis.aclose()
-            await engine.dispose()
 
 
 def main() -> None:
@@ -294,9 +339,13 @@ def main() -> None:
     parser.add_argument("--websocket", default="ws://127.0.0.1:18001/api/ws")
     parser.add_argument("--output", type=Path, default=Path("docs/reports/part-1-gate2.json"))
     args = parser.parse_args()
-    if args.jobs < 1 or args.kills < 2 or args.timeout <= 0:
-        parser.error("positive jobs/timeout and at least two kill attempts required")
-    result = asyncio.run(run(args))
+    if not 1 <= args.jobs <= 2000 or args.kills < 2 or args.timeout <= 0:
+        parser.error("1..2000 jobs, positive timeout and at least two kill attempts required")
+    try:
+        result = asyncio.run(run(args))
+    except Exception as exc:
+        print(json.dumps({"status": "failed", "category": type(exc).__name__}), file=sys.stderr)
+        raise SystemExit(1) from None
     args.output.write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps(result, indent=2))
 

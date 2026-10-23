@@ -32,3 +32,21 @@ implementation of all remaining algorithms, including incomplete earlier work.
 The latest request explicitly authorizes the full Part 1 without Phase A or CP
 pauses. This overrides the attachment's checkpoint pauses, but does not waive
 the credential, dependency, safety, trust-zone, or evidence requirements above.
+
+## One-time recovery authorization — 23 October 2026
+
+After the missing bridge was explained, the human preferred a port change but
+explicitly said “if not go ahead.” Since port selection cannot restore a missing
+bridge, this authorized one limited recovery: `docker compose down` without `-v`,
+then `docker compose up -d`, recreating only WARDEN's containers/default network.
+The four attached containers belonged to WARDEN; named `pgdata`, `redisdata` and
+`objectdata` volumes were retained. Daemon settings, subnet configuration and
+published-port definitions were not edited. This is a one-time exception for the
+stale runtime network, not permission for future network configuration changes.
+
+The attempted recreation restored Docker connectivity but reintroduced the
+172.17.0.0/16 route and the human's Ethernet problem. The human deleted that bridge
+and explicitly selected keeping Docker stopped until the host address-pool fix is
+corrected. That later instruction closes the one-time recovery exception: do not
+repeat network recreation or start containers before the human confirms the host
+fix and authorizes resuming. See `docs/DOCKER_NETWORK_RECOVERY.md`.

@@ -1,0 +1,25 @@
+{
+  "status": "interrupted_not_passed",
+  "date": "2026-10-23",
+  "reason": "Human deleted the 172.17.0.0/16 Compose bridge after Ethernet disruption; database connections then timed out.",
+  "live_storage_boundary": {
+    "fetcher_write": true,
+    "processor_read": true,
+    "processor_write_denied_http_status": 403
+  },
+  "fetcher_database_isolation_check": "passed before batch phase",
+  "cross_replica_websocket_check": "passed before batch phase; latency/timeline not saved",
+  "batch_jobs_staged": 500,
+  "aggregate_proof_related_receipts_at_local_socket_audit": {
+    "completed": 421,
+    "queued": 82,
+    "failed": 0,
+    "total": 503,
+    "snapshots": 421
+  },
+  "count_scope": "All Gate 2 simulator monitors; includes baseline and scheduler-created checks, not a final audit of exactly the 500 batch IDs.",
+  "kill_timeline": "not recovered; no exact kill/reclaim count claimed",
+  "gate2_passed": false,
+  "final_container_state": "All WARDEN containers stopped at human request; named data volumes retained.",
+  "resume_condition": "Human corrects host address-pool fix and confirms permission to resume with a nonconflicting network."
+}

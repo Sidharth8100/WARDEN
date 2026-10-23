@@ -179,7 +179,7 @@ async def login(
             detail="Invalid email or password",
         )
 
-    # Success: reset rate limit and issue tokens
+    # Issue tokens; success does not reset the shared GCRA attempt budget.
     raw_refresh, raw_csrf, access_token = await create_new_refresh_session(session, user, settings)
 
     await log_audit_event(

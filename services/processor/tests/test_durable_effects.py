@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from warden_core.jobs import JobPayload
 from warden_db.dispatch import fence, stage_check
 from warden_db.models import ChangeEvent, CrawlJob, Monitor, Outbox, SchedulerFence, Snapshot, User
+from warden_db.proof_ledger import query as query_proof_ledger
 from warden_db.session import make_engine, make_sessionmaker
 from warden_net.objectstore import ObjectStoreConfig
 from warden_processor.main import Processor
@@ -204,3 +205,51 @@ async def test_fencing_rejects_stale_term_globally(
     async with sessions() as session:
         row = await session.get(SchedulerFence, "scheduler")
         assert row is not None and row.token == 11
+
+
+async def test_operator_ledger_scopes_batches_and_audits_all_durable_effects(
+    sessions: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    job, store = await seed(sessions)
+    monitor_id = uuid.UUID(job.monitor_id)
+    # This fixture URL has no password and only a private temporary Unix socket.
+    monkeypatch.setenv("WARDEN_DATABASE_URL", str(sessions.kw["bind"].url))
+    with pytest.raises(ValueError, match="only_gate2"):
+        await query_proof_ledger("stage", monitor_id, [], 3)
+    target = "http://chaos-web:8000/pages/price/gate2-private-fixture"
+    async with sessions() as session, session.begin():
+        monitor = await session.get(Monitor, monitor_id)
+        assert monitor is not None
+        monitor.url = target
+    staged = await query_proof_ledger("stage", monitor_id, [], 3)
+    ids = [uuid.UUID(identity) for identity in staged["job_ids"]]
+    assert len(ids) == 3
+    before = b"<html><body><p>$99.99</p></body></html>"
+    after = b"<html><body><p>$199.99</p></body></html>"
+    blobs = {hashlib.sha256(data).hexdigest(): data for data in (before, after)}
+
+    async def read(config: ObjectStoreConfig, key: str) -> bytes:
+        return blobs[key]
+
+    processor = Processor(sessions, store)
+    with patch("warden_processor.main.get_blob", new=read):
+        for index, identity in enumerate(ids):
+            result = replace(
+                job,
+                job_id=str(identity),
+                url=target,
+                content_hash=hashlib.sha256(before if index == 0 else after).hexdigest(),
+            )
+            await processor.process(result)
+            await processor.process(result)
+    status = await query_proof_ledger("status", monitor_id, ids, 0)
+    assert len(status["receipts"]) == 3
+    assert all(receipt["status"] == "completed" for receipt in status["receipts"])
+    assert await query_proof_ledger("audit", monitor_id, [], 0) == {
+        "actual_snapshots": 3,
+        "receipt_snapshots": 3,
+        "actual_events": 1,
+        "receipt_events": 1,
+        "event_outboxes": 1,
+    }

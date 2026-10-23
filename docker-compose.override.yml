@@ -27,6 +27,15 @@
 name: warden
 
 services:
+  # Local JWT keys remain owner-only and bind-mounted read-only. Match the
+  # developer's non-root UID instead of copying keys into images or chmodding
+  # secrets. Production images retain their fixed non-root UID 10001.
+  api: &local_api
+    user: "${WARDEN_DEV_UID:-1000}:${WARDEN_DEV_GID:-1000}"
+
+  api2:
+    <<: *local_api
+
   postgres:
     ports:
       # Format: "HOST_IP:HOST_PORT:CONTAINER_PORT"

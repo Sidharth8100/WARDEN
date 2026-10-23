@@ -12,9 +12,10 @@ Section 7 of the report gives a beginner learning path and interview exercises.
 
 The implementation, strict typing, default tests, private PostgreSQL/Redis protocol
 tests and Docker builds pass. **The live Gate 2 crash/cross-replica proof has not
-passed:** Docker's existing network points to a missing bridge device. Restoring
-the human's existing campus-network setup is a prerequisite; agents must not change
-Docker daemon/network configuration.
+passed:** the run was interrupted when the human deleted a conflicting
+172.17 bridge to restore Ethernet. All WARDEN containers are now stopped at the
+human's request. The host address-pool fix must be corrected before any restart.
+See [the network recovery handoff](docs/DOCKER_NETWORK_RECOVERY.md).
 
 Classifier v2 fixes a discovered job-list recall regression and passes 210 seeded
 synthetic pairs. No labeled real website evaluation exists yet. See the report for
