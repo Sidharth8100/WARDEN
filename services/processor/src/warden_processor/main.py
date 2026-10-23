@@ -11,7 +11,12 @@ import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from warden_compare.classify import classify, extract_features, load_classifier_config
+from warden_compare.classify import (
+    CLASSIFIER_VERSION,
+    classify,
+    extract_features,
+    load_classifier_config,
+)
 from warden_compare.normalize import normalize
 from warden_core.bloomfilter import BloomFilter
 from warden_core.jobs import ChangeEventPayload, JobPayload
@@ -123,7 +128,7 @@ class Processor:
                     score=classification.score,
                     meaningful=True,
                     features=classification.features,
-                    classifier_version="v1",
+                    classifier_version=CLASSIFIER_VERSION,
                 )
                 session.add(event)
                 await session.flush()

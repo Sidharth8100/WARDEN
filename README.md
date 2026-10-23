@@ -16,9 +16,9 @@ passed:** Docker's existing network points to a missing bridge device. Restoring
 the human's existing campus-network setup is a prerequisite; agents must not change
 Docker daemon/network configuration.
 
-The latest classifier evaluation also exposed insufficient job-list recall. See
-the report for actual counts and limitations; historical Gate 1 claims are not
-current verification.
+Classifier v2 fixes a discovered job-list recall regression and passes 210 seeded
+synthetic pairs. No labeled real website evaluation exists yet. See the report for
+actual counts, scope and limitations.
 
 ## Local checks
 

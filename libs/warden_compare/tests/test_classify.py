@@ -76,3 +76,39 @@ def test_weighted_scoring_and_classification():
     res_noise = classify(noise_features, weights, threshold)
     assert s_noise < threshold
     assert res_noise.meaningful is False
+
+
+def test_content_addition_and_deletion_remain_signal_in_long_lists():
+    before = (
+        b"<html><body><ul>"
+        + b"".join(f"<li>Existing role number {index}</li>".encode() for index in range(100))
+        + b"</ul></body></html>"
+    )
+    after = before.replace(b"</ul>", b"<li>Distributed Systems Engineer</li></ul>")
+    weights, threshold = load_classifier_config()
+    for old, new in [(before, after), (after, before)]:
+        features = extract_features(normalize(old), normalize(new))
+        assert features.has_content_structure_change
+        assert classify(features, weights, threshold).meaningful
+
+
+def test_structure_only_wrapper_change_is_not_content_signal():
+    old = normalize(b"<html><body><div>Stable content</div></body></html>")
+    new = normalize(b"<html><body><section>Stable content</section></body></html>")
+    features = extract_features(old, new)
+    weights, threshold = load_classifier_config()
+    assert not features.has_content_structure_change
+    assert not classify(features, weights, threshold).meaningful
+
+
+def test_small_timestamp_update_does_not_gain_structural_signal():
+    old = normalize(
+        b"<ul><li>Engineer posted 2 hours ago</li><li>Manager posted 1 hours ago</li></ul>"
+    )
+    new = normalize(
+        b"<ul><li>Engineer posted 3 hours ago</li><li>Manager posted 2 hours ago</li></ul>"
+    )
+    features = extract_features(old, new)
+    weights, threshold = load_classifier_config()
+    assert not features.has_content_structure_change
+    assert not classify(features, weights, threshold).meaningful

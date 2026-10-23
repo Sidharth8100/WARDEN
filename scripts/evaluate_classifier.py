@@ -1,20 +1,27 @@
-"""Gate 1 Evaluation Script: Benchmark Classifier v1 against Sim and Real pairs.
+"""Gate 1 regression evaluation against simulator and labeled real pairs.
 
 Evaluates change classifier performance against ground-truth simulator mutations
 from chaos-web across 200+ trials, along with any labeled real-world web pairs.
 """
 
+import argparse
 import asyncio
 import json
+import random
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import httpx
 from httpx import ASGITransport
 
 from chaos_web.main import app as chaos_app
-from warden_compare.classify import classify, extract_features, load_classifier_config
+from warden_compare.classify import (
+    CLASSIFIER_VERSION,
+    classify,
+    extract_features,
+    load_classifier_config,
+)
 from warden_compare.normalize import normalize
 
 LABELS_FILE = Path("tests/fixtures/real_pairs/labels.json")
@@ -167,13 +174,25 @@ def evaluate_real_pairs() -> ConfusionMatrix | None:
 
 
 async def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--seed", type=int, default=4721)
+    parser.add_argument("--trials-per-archetype", type=int, default=70)
+    parser.add_argument("--output", type=Path)
+    args = parser.parse_args()
+    if args.trials_per_archetype < 1:
+        parser.error("trials-per-archetype must be positive")
+    # Only the local simulator uses this PRNG. No credentials are generated here.
+    random.seed(args.seed)
     print("=" * 70)
-    print("WARDEN GATE 1 CLASSIFIER EVALUATION REPORT")
+    print(f"WARDEN GATE 1 CLASSIFIER {CLASSIFIER_VERSION} EVALUATION REPORT (seed {args.seed})")
     print("=" * 70)
 
     # 1. Sim pairs evaluation
-    print("\n[+] Evaluating 210 synthetic pairs against chaos-web ground truth...")
-    sim_cm, type_stats = await evaluate_sim_pairs(trials_per_archetype=70)
+    print(
+        f"\n[+] Evaluating {args.trials_per_archetype * 3} synthetic pairs "
+        "against chaos-web ground truth..."
+    )
+    sim_cm, type_stats = await evaluate_sim_pairs(trials_per_archetype=args.trials_per_archetype)
 
     print("\n--- SIMULATION RESULTS (Synthetic Internet) ---")
     print(f"Total Sim Pairs Evaluated: {sim_cm.total}")
@@ -209,6 +228,31 @@ async def main() -> None:
         print("Human operator must run `make capture-pair URL=...` and label snapshots.")
 
     print("\n" + "=" * 70)
+    if args.output:
+        args.output.write_text(
+            json.dumps(
+                {
+                    "classifier_version": CLASSIFIER_VERSION,
+                    "seed": args.seed,
+                    "simulation": {
+                        **asdict(sim_cm),
+                        "pairs": sim_cm.total,
+                        "precision": sim_cm.precision,
+                        "recall": sim_cm.recall,
+                        "f1": sim_cm.f1,
+                        "accuracy": sim_cm.accuracy,
+                    },
+                    "mutation_categories": dict(type_stats),
+                    "real_pairs": asdict(real_cm) if real_cm else None,
+                    "scope": (
+                        "synthetic regression suite used during development; "
+                        "not held-out real-world validation"
+                    ),
+                },
+                indent=2,
+            )
+            + "\n"
+        )
 
 
 if __name__ == "__main__":

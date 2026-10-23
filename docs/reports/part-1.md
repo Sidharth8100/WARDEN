@@ -452,7 +452,7 @@ change the winner. Fair baselines use the same budget, trace and bounds.
 
 ### Checks actually run
 
-- `make check`: **249 passed, 21 skipped, 37 deselected**; ruff and formatting
+- `make check`: **252 passed, 21 skipped, 37 deselected**; ruff and formatting
   passed; strict mypy passed on 73 source files. Tests ran outside the filesystem/
   network sandbox so TestClient's local sockets could function.
 - `make check-todos`: **66 passed, 4 skipped**. All four algorithm groups execute;
@@ -482,23 +482,39 @@ The additional 14 real protocol checks are listed separately for that reason.
 A Starlette/httpx TestClient deprecation warning remains; adding its suggested
 replacement dependency is outside the approved dependency list.
 
-### Rechecking Gate 1 revealed a real limitation
+### Gate 1 regression found and corrected with classifier v2
 
-After removing the old NotImplemented fallbacks, the classifier uses real SimHash
-and TF-IDF features. The latest 210 synthetic pairs produced **43 TP, 0 FP, 27 FN,
-140 TN**: precision 100%, recall 61.43%, accuracy 87.14%, F1 0.7611. All job-list
-addition/removal cases in that run were missed. The previous weights were not
-validated for the now-real feature values. The simulator uses process randomness,
-so repeated run counts differ; these are the last observed counts, not a seeded
-classifier benchmark. No human-labeled real pairs are available.
+Removing the old NotImplemented fallbacks exposed a real v1 weakness. With real
+SimHash and TF-IDF features, a 210-pair run produced **43 TP, 0 FP, 27 FN, 140 TN**:
+recall 61.43%, accuracy 87.14%. Every job-list addition/removal in that run was
+missed. Global text similarity alone made one new role look insignificant among
+otherwise unchanged content. A newly added short-page regression also caught
+relative-time changes being treated as price changes because their inserted tokens
+were numeric. Its failing assertion was preserved and the feature logic repaired.
 
-Therefore earlier Gate 1 accuracy claims must not be carried forward. No test or
-threshold was loosened to conceal the regression. A follow-up should add a labeled
-training/held-out split, meaningful structural-change evidence and calibrate a
-versioned classifier; merely lowering the decision threshold until this small
-simulator passes would not establish generalization. The Gate 2 price-monitor
-probe is designed to exercise the queue and cross-replica path, not to certify
-classifier quality across page types.
+Classifier **v2** adds an explicit content-topology signal: a DOM insertion/deletion
+whose normalized text actually changes. A wrapper/tag change without changed text
+does not earn that signal. A timestamp-only rule compares surrounding text after
+masking recognized temporal expressions, preventing a short timestamp tick from
+receiving numeric-price credit. The decision threshold remains **0.35**, unchanged.
+Events persist `v2`, and the loader rejects a mismatched configuration version.
+
+Dedicated tests cover addition/deletion in a 100-item list, wrapper-only changes
+and relative-time-only updates. The evaluation script now has a seed, trial count
+and machine-readable output. The recorded v2 regression run uses **seed 4721** and
+210 pairs: **77 TP, 0 FP, 0 FN, 133 TN**, precision/recall/accuracy 100% and F1 1.0.
+See [the v2 evaluation artifact](part-1-classifier-v2.json) and
+[the versioned policy rationale](../../libs/warden_compare/src/warden_compare/classifier_config.md).
+The earlier v1 run was unseeded and had a different mutation mix; the counts are
+not a paired experiment measuring a precise production improvement.
+
+These templates were used while diagnosing the issue, so this is **synthetic
+regression validation**, not untouched held-out data. No human-labeled real pairs
+exist. Decorative content widgets can still trigger a structural signal, and dates
+can be meaningful even when a temporal pattern matches. Real-world precision and
+recall remain unmeasured; selectors/rules and a held-out labeled corpus are still
+needed. The Gate 2 price-monitor probe validates queue and cross-replica behavior,
+not classifier generalization across the web.
 
 ### Live Gate 2: not yet executed
 
@@ -613,7 +629,7 @@ not a copy of the source code.
 | Why not optimize exact freshness? | The square-root rule optimizes a small-λI approximation; exact objectives may require a different solver. We evaluate actual stale time separately. |
 | What did you personally write? | The current Part 1 implementation was AI-authored. Explain what you studied, independently verified or later changed, and point to the authorship ledger. |
 | Is Gate 2 passed? | No. Builds and isolated tests passed; the live Docker deployment proof is blocked by an existing missing bridge. |
-| Is the classifier accurate enough? | Not demonstrated: the latest synthetic recall was 61.43%, with no labeled real evaluation set. Explain the planned validation rather than repeating old claims. |
+| Is the classifier accurate enough? | v2 passed 210 seeded synthetic regression pairs after fixing a v1 recall problem. No labeled real evaluation set exists, so real-world quality remains unmeasured. |
 
 A strong answer has five parts: **requirement → invariant → failure example →
 mechanism → evidence and limit**. For example: “Accepted checks must survive a worker
@@ -639,8 +655,9 @@ change you can reason about independently. That is transferable engineering skil
 - `844bd4f`: pure primitives and completion of the earlier comparison algorithms.
 - `c0a71eb`: Redis protocols, durable scheduling/processing, gateway and service wiring.
 
-No changes were pushed. The final documentation commit records evidence and this
-handoff. The pre-existing SSRF diff remains outside these commits.
+The documentation commit `6585950` first recorded the blocked live handoff. A
+subsequent scoped classifier-v2 fix updates the synthetic regression evidence.
+No changes were pushed. The pre-existing SSRF diff remains outside these commits.
 
 ## 8. File map and operational entry points
 
@@ -693,16 +710,16 @@ credential generation again, read credential files, or run the generator.
    a success artifact manually. Confirm cross-replica WebSocket and S3 403 evidence.
    If a target/dependency fails, fix the cause and rerun with a fresh proof monitor.
 5. Update this report and the authorship ledger with real outcomes, then rerun
-   `make check`. The last verified default suite is 249 passed/21 skipped; explicit
+   `make check`. The last verified default suite is 252 passed/21 skipped; explicit
    private PostgreSQL/Redis tests are 14 passed. The strengthened claim-renewal A/B
-   test passed in the final explicit integration run (14 passed in 6.24 seconds).
+   test and v2 durable-event transaction passed in the final integration run.
 6. Keep the pre-existing uncommitted `libs/warden_core/src/warden_core/ssrf.py`
    separate. Its diff is 153 insertions/47 deletions; never overwrite or silently
    attribute it. Existing older learning files and `docs/reports/prompt-04.md`
    were untracked before Part 1; do not sweep them into an unrelated commit.
-7. Gate 1 classifier quality is a separate known regression with real measurements
-   in section 5. Do not infer quality from unit test success, and do not silently
-   waive its recall requirement before production work.
+7. Classifier v2 fixes the discovered synthetic recall regression; its seeded result
+   is recorded in section 5 and `part-1-classifier-v2.json`. No real labeled corpus
+   exists: synthetic success must not be presented as real-world validation.
 
 For this environment, commands used `UV_CACHE_DIR=/tmp/warden-uv-cache UV_OFFLINE=true`.
 Default test WebSockets and private integration sockets require execution outside

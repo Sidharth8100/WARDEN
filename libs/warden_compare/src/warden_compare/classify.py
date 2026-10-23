@@ -1,4 +1,4 @@
-"""Pure feature extraction, smoothed TF-IDF, and rule-weighted linear classifier v1."""
+"""Pure feature extraction, smoothed TF-IDF, and versioned rule classifier v2."""
 
 import json
 import math
@@ -10,10 +10,11 @@ from typing import Any
 
 from warden_compare.normalize import NormalizedDoc
 from warden_compare.simhash import compute_simhash, hamming_distance
-from warden_compare.treediff import diff_trees, hash_tree
+from warden_compare.treediff import TreeDelete, TreeInsert, diff_trees, hash_tree
 from warden_compare.visualdiff import diff_screenshots
 
 CONFIG_PATH = Path(__file__).parent / "classifier_config.json"
+CLASSIFIER_VERSION = "v2"
 DATE_TIME_PATTERNS = [
     re.compile("\\b\\d{4}-\\d{2}-\\d{2}\\b"),
     re.compile("\\b\\d{10}(?:\\.\\d+)?\\b"),
@@ -75,6 +76,8 @@ class FeatureVector:
     visual_ssim: float | None
     visual_changed_area: float | None
     visual_bbox_count: int | None
+    has_content_structure_change: bool = False
+    is_timestamp_only: bool = False
 
 
 @dataclass(frozen=True)
@@ -90,18 +93,21 @@ def load_classifier_config() -> tuple[dict[str, float], float]:
     """Load weights and decision threshold from classifier_config.json."""
     if not CONFIG_PATH.is_file():
         default_weights = {
-            "text_change_ratio": 0.35,
-            "is_numeric_only": 0.25,
-            "date_timestamp_hit_count": -0.3,
+            "text_change_ratio": 0.45,
+            "is_numeric_only": 0.35,
+            "date_timestamp_hit_count": -0.4,
             "dom_depth_score": 0.15,
             "is_ad_or_banner": -0.4,
             "simhash_difference_ratio": 0.2,
             "tfidf_dissimilarity": 0.25,
             "visual_change_coverage": 0.2,
+            "has_content_structure_change": 0.35,
         }
-        return (default_weights, 0.45)
+        return (default_weights, 0.35)
     data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-    return (data.get("weights", {}), float(data.get("threshold", 0.45)))
+    if data.get("version") != CLASSIFIER_VERSION:
+        raise ValueError("classifier configuration version mismatch")
+    return (data["weights"], float(data["threshold"]))
 
 
 def extract_features(
@@ -145,6 +151,22 @@ def extract_features(
         date_hits += len(matches_old ^ matches_new)
     if date_hits > 0 and text_change_ratio < 0.2:
         is_numeric = False
+
+    # Context matters: changing "2 hours ago" to "3 hours ago" inserts a
+    # number, but is not a price/count change. Compare the surrounding content
+    # after replacing entire recognized temporal expressions, at any text ratio.
+    def without_timestamps(value: str) -> str:
+        for pattern in DATE_TIME_PATTERNS:
+            value = pattern.sub("<time>", value)
+        return value
+
+    timestamp_only = (
+        old_text != new_text
+        and date_hits > 0
+        and without_timestamps(old_text) == without_timestamps(new_text)
+    )
+    if timestamp_only:
+        is_numeric = False
     h_old = hash_tree(old.dom)
     h_new = hash_tree(new.dom)
     tree_ops = diff_trees(h_old, h_new)
@@ -187,11 +209,16 @@ def extract_features(
         visual_ssim=round(visual_ssim, 4) if visual_ssim is not None else None,
         visual_changed_area=round(visual_coverage, 4) if visual_coverage is not None else None,
         visual_bbox_count=visual_boxes_count,
+        has_content_structure_change=old_text != new_text
+        and any(isinstance(op, TreeInsert | TreeDelete) for op in tree_ops),
+        is_timestamp_only=timestamp_only,
     )
 
 
 def score(features: FeatureVector, weights: dict[str, float]) -> float:
     """Compute transparent weighted linear combination of normalized feature values in [0, 1]."""
+    if features.is_timestamp_only:
+        return 0.0
     raw_score = 0.0
     raw_score += weights.get("text_change_ratio", 0.0) * features.text_change_ratio
     if features.is_numeric_only:
@@ -202,6 +229,8 @@ def score(features: FeatureVector, weights: dict[str, float]) -> float:
     raw_score += weights.get("dom_depth_score", 0.0) * features.dom_depth_score
     if features.is_ad_or_banner:
         raw_score += weights.get("is_ad_or_banner", 0.0)
+    if features.has_content_structure_change:
+        raw_score += weights.get("has_content_structure_change", 0.0)
     simhash_diff_ratio = min(1.0, features.simhash_distance / 64.0)
     raw_score += weights.get("simhash_difference_ratio", 0.0) * simhash_diff_ratio
     tfidf_dissim = max(0.0, min(1.0, 1.0 - features.tfidf_similarity))

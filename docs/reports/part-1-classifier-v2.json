@@ -1,0 +1,59 @@
+{
+  "classifier_version": "v2",
+  "seed": 4721,
+  "simulation": {
+    "tp": 77,
+    "fp": 0,
+    "tn": 133,
+    "fn": 0,
+    "pairs": 210,
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0,
+    "accuracy": 1.0
+  },
+  "mutation_categories": {
+    "price: Timestamp tick and banner rotated to banner_2.jpg": {
+      "total": 52,
+      "correct": 52
+    },
+    "price: Price changed from $99.99 to $104.99": {
+      "total": 7,
+      "correct": 7
+    },
+    "price: Price changed from $99.99 to $89.99": {
+      "total": 6,
+      "correct": 6
+    },
+    "price: Price changed from $99.99 to $109.99": {
+      "total": 2,
+      "correct": 2
+    },
+    "price: Price changed from $99.99 to $94.99": {
+      "total": 3,
+      "correct": 3
+    },
+    "jobs: Incremented relative posting timestamps": {
+      "total": 44,
+      "correct": 44
+    },
+    "jobs: Removed job posting": {
+      "total": 16,
+      "correct": 16
+    },
+    "jobs: Added new job posting": {
+      "total": 10,
+      "correct": 10
+    },
+    "app: Session tracking ping and token refresh": {
+      "total": 37,
+      "correct": 37
+    },
+    "app: Dashboard metrics payload updated": {
+      "total": 33,
+      "correct": 33
+    }
+  },
+  "real_pairs": null,
+  "scope": "synthetic regression suite used during development; not held-out real-world validation"
+}
