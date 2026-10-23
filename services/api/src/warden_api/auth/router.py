@@ -1,6 +1,5 @@
 """Authentication and session management API routes."""
 
-import contextlib
 import uuid
 from datetime import UTC, datetime
 from typing import Annotated
@@ -15,11 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from warden_api.auth.audit import log_audit_event
 from warden_api.auth.dependencies import get_current_user, get_redis
 from warden_api.auth.jwt import decode_access_token
-from warden_api.auth.limiter import (
-    check_rate_limit,
-    record_login_failure,
-    reset_login_limit,
-)
+from warden_api.auth.limiter import check_rate_limit
 from warden_api.auth.passwords import (
     hash_password,
     validate_email_address,
@@ -146,7 +141,7 @@ async def login(
 ) -> TokenResponse:
     """Authenticate user credentials and issue session cookies and access token."""
     client_ip = request.client.host if request.client else None
-    check_rate_limit(client_ip, body.email)
+    await check_rate_limit(request.app.state.redis, client_ip, body.email)
 
     clean_email = body.email.strip().lower()
     stmt = select(User).where(User.email == clean_email)
@@ -156,7 +151,6 @@ async def login(
     if user is None:
         # TIMING-ATTACK RESISTANCE: Always execute an Argon2id verification
         verify_dummy_password(body.password, settings.dummy_password_hash)
-        record_login_failure(client_ip, body.email)
         await log_audit_event(
             session,
             action="login_failure",
@@ -171,7 +165,6 @@ async def login(
         )
 
     if not verify_password(body.password, user.password_hash):
-        record_login_failure(client_ip, body.email)
         await log_audit_event(
             session,
             action="login_failure",
@@ -187,7 +180,6 @@ async def login(
         )
 
     # Success: reset rate limit and issue tokens
-    reset_login_limit(client_ip, body.email)
     raw_refresh, raw_csrf, access_token = await create_new_refresh_session(session, user, settings)
 
     await log_audit_event(
@@ -267,17 +259,12 @@ async def logout(
     # Denylist the current access token for its remaining TTL
     if authorization and authorization.startswith("Bearer "):
         raw_token = authorization.removeprefix("Bearer ").strip()
-        try:
-            payload = decode_access_token(raw_token, settings)
-            jti = payload.get("jti")
-            exp = payload.get("exp", 0)
-            now_ts = int(datetime.now(UTC).timestamp())
-            rem_ttl = max(1, exp - now_ts)
-            if jti:
-                with contextlib.suppress(NotImplementedError):
-                    await add_to_denylist(redis, jti, ttl_seconds=rem_ttl)
-        except Exception as exc:
-            _log.debug("token_denylist_skipped_or_failed", error=str(exc))
+        payload = decode_access_token(raw_token, settings)
+        jti = payload.get("jti")
+        exp = payload.get("exp", 0)
+        rem_ttl = max(1, exp - int(datetime.now(UTC).timestamp()))
+        if jti:
+            await add_to_denylist(redis, jti, ttl_seconds=rem_ttl)
 
     # Revoke current family if refresh cookie present
     raw_refresh = request.cookies.get("warden_refresh")

@@ -34,6 +34,8 @@ EXPECTED_TABLES = frozenset(
     {
         "audit_log",
         "change_events",
+        "crawl_jobs",
+        "scheduler_fences",
         "feedback_labels",
         "idempotency_keys",
         "monitor_tags",
@@ -52,8 +54,8 @@ EXPECTED_TABLES = frozenset(
 class TestModelRegistry:
     """Verify the ORM metadata contains the exact expected tables."""
 
-    def test_exactly_thirteen_tables(self) -> None:
-        """The metadata should contain exactly 13 tables (9 Prompt 1 + 4 Prompt 2)."""
+    def test_exactly_fifteen_tables(self) -> None:
+        """Exactly 15 tables: 13 earlier plus job ledger and scheduler fence."""
         actual = frozenset(Base.metadata.tables.keys())
         assert actual == EXPECTED_TABLES, (
             f"Table mismatch.\n"

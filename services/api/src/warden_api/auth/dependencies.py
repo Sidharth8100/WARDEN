@@ -40,22 +40,24 @@ async def get_current_user(
         )
 
     raw_token = authorization.removeprefix("Bearer ").strip()
+    return await authenticate_user(raw_token, settings, session, redis)
+
+
+async def authenticate_user(
+    raw_token: str, settings: Settings, session: AsyncSession, redis: Redis
+) -> User:
+    """Common HTTP/WebSocket JWT, revocation, and account checks; fail closed."""
+
     payload = decode_access_token(raw_token, settings)
 
-    # Check denylist for token JTI
     jti = payload.get("jti")
-    if jti:
-        try:
-            if await is_denylisted(redis, jti):
-                raise APIError(
-                    status_code=401,
-                    title="Unauthorized",
-                    detail="Token has been revoked",
-                    headers={"WWW-Authenticate": 'Bearer error="invalid_token"'},
-                )
-        except NotImplementedError:
-            # Denylist stub has not yet been implemented by student; allow token to pass
-            pass
+    if not jti or await is_denylisted(redis, jti):
+        raise APIError(
+            status_code=401,
+            title="Unauthorized",
+            detail="Token has been revoked",
+            headers={"WWW-Authenticate": 'Bearer error="invalid_token"'},
+        )
 
     user_id_str = payload.get("sub")
     if not user_id_str:

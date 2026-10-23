@@ -74,7 +74,7 @@ class Settings(BaseSettings):
     # env_file_encoding: standard utf-8
     model_config = SettingsConfigDict(
         env_prefix="WARDEN_",
-        env_file=".env",
+        env_file=None,
         env_file_encoding="utf-8",
         # extra="ignore" means unknown WARDEN_* variables in .env are silently
         # ignored rather than raising a validation error. This is important
@@ -132,6 +132,12 @@ class Settings(BaseSettings):
     fetch_default_timeout_s: float = 15.0
     fetch_max_bytes: int = 10_000_000
     keyframe_interval: int = 20
+    ws_allowed_origins: tuple[str, ...] = (
+        "http://127.0.0.1:18000",
+        "http://127.0.0.1:18001",
+        "http://localhost:18000",
+        "http://localhost:18001",
+    )
 
     @model_validator(mode="before")
     @classmethod

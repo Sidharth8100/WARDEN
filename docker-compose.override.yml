@@ -34,3 +34,7 @@ services:
       # We use 5433 (not 5432) so it doesn't clash if you have a local
       # Postgres already running on the standard port.
       - "127.0.0.1:5433:5432"
+
+  redis:
+    ports:
+      - "127.0.0.1:16379:6379"

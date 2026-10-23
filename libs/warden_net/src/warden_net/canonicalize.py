@@ -7,9 +7,12 @@ import hashlib
 import posixpath
 import urllib.parse
 from dataclasses import dataclass
+from ipaddress import IPv6Address, ip_address
 
 import idna
 import tldextract
+
+_EXTRACTOR = tldextract.TLDExtract(suffix_list_urls=(), cache_dir=None)
 
 
 @dataclass(frozen=True)
@@ -59,11 +62,17 @@ def canonicalize_url(raw: str) -> CanonicalUrl:
         raise ValueError("URL must include a valid host")
 
     raw_host = raw_host.strip()
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("URL userinfo is not permitted")
+    try:
+        literal = ip_address(raw_host)
+    except ValueError:
+        literal = None
 
     # Handle IPv6 bracketed literals vs regular hostnames
-    if raw_host.startswith("[") and raw_host.endswith("]"):
-        canonical_host = f"[{raw_host[1:-1].lower()}]"
-        host_for_tld = raw_host[1:-1]
+    if isinstance(literal, IPv6Address):
+        canonical_host = f"[{literal.compressed}]"
+        host_for_tld = literal.compressed
     else:
         try:
             canonical_host = idna.encode(raw_host.lower()).decode("ascii").lower()
@@ -103,7 +112,7 @@ def canonicalize_url(raw: str) -> CanonicalUrl:
     canonical_str = urllib.parse.urlunsplit((scheme, netloc, norm_path, canonical_query, ""))
 
     # 7. Registrable domain via tldextract (eTLD+1)
-    extracted = tldextract.extract(host_for_tld)
+    extracted = _EXTRACTOR(host_for_tld)
     reg_domain = extracted.top_domain_under_public_suffix or host_for_tld
 
     # 8. SHA-256 hash as raw bytes

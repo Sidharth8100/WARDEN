@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from typing import Any
 
+from redis.asyncio import Redis
+
 from warden_fetch.robots import is_fetch_allowed
 from warden_fetch.tier1 import fetch_tier1
 from warden_net.objectstore import ObjectStoreConfig, put_blob
@@ -46,12 +48,14 @@ async def fetch(
     selenium_hub_url: str = "http://selenium-hub:4444",
     timeout_s: float = 15.0,
     max_bytes: int = 10_000_000,
+    redis: Redis | None = None,
 ) -> FetchResult:
     """Orchestrate fetching of a monitor specification with robots and tier routing."""
     # 1. Evaluate robots.txt policy
     robots_decision = await is_fetch_allowed(
         spec.url,
         extra_allowed_hosts=extra_allowed_hosts,
+        redis=redis,
     )
     if not robots_decision.allowed:
         return FetchResult(

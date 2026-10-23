@@ -51,7 +51,8 @@ WORKDIR /build
 # uv.lock), Docker reuses the cached install layer = much faster rebuilds.
 COPY pyproject.toml uv.lock ./
 COPY libs/ ./libs/
-COPY services/api/ ./services/api/
+COPY services/ ./services/
+COPY sim/ ./sim/
 
 # Install warden-api and all its dependencies into /opt/venv.
 # Flags explained:

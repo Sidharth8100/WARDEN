@@ -40,3 +40,8 @@ report.txt
 
 # Frontend, later
 node_modules/
+
+# Human-provisioned runtime credentials (never read by agents).
+.runtime/
+redis/users.acl
+seaweedfs/s3config.json

@@ -62,7 +62,7 @@ def make_engine(url: str) -> AsyncEngine:
     """
     url = _normalize_db_url(url)
     if not url.startswith("postgresql+asyncpg://"):
-        raise ValueError(f"Database URL must use postgresql+asyncpg:// scheme, got: {url[:30]}...")
+        raise ValueError("Database URL must use postgresql+asyncpg:// scheme")
 
     return create_async_engine(
         url,

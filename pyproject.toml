@@ -11,6 +11,10 @@ dependencies = [
     "warden-api",
     "chaos-web",
     "redis>=8.1.0",
+    "warden-redis",
+    "warden-scheduler",
+    "warden-fetcher",
+    "warden-processor",
 ]
 
 [tool.uv]
@@ -23,7 +27,11 @@ members = [
     "libs/warden_net",
     "libs/warden_fetch",
     "libs/warden_compare",
+    "libs/warden_redis",
     "services/api",
+    "services/scheduler",
+    "services/fetcher",
+    "services/processor",
     "sim/chaos_web",
 ]
 
@@ -35,6 +43,10 @@ warden-fetch = { workspace = true }
 warden-compare = { workspace = true }
 warden-api = { workspace = true }
 chaos-web = { workspace = true }
+warden-redis = { workspace = true }
+warden-scheduler = { workspace = true }
+warden-fetcher = { workspace = true }
+warden-processor = { workspace = true }
 
 [dependency-groups]
 dev = [
@@ -54,7 +66,7 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["libs", "services", "sim"]
-addopts = "--import-mode=importlib -m 'not integration and not student_todo and not selenium and not chaos_web'"
+addopts = "--import-mode=importlib -m 'not integration and not selenium and not chaos_web'"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 
@@ -84,7 +96,7 @@ extend-exclude = [
 select = ["E", "F", "I", "B", "UP", "S", "ASYNC", "SIM", "RUF"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["warden_core", "warden_db", "warden_net", "warden_fetch", "warden_compare", "warden_api", "chaos_web"]
+known-first-party = ["warden_core", "warden_db", "warden_net", "warden_fetch", "warden_compare", "warden_redis", "warden_scheduler", "warden_fetcher", "warden_processor", "warden_api", "chaos_web"]
 
 [tool.ruff.lint.per-file-ignores]
 "**/tests/**" = ["S101", "S311"]
@@ -99,7 +111,11 @@ mypy_path = [
     "libs/warden_net/src",
     "libs/warden_fetch/src",
     "libs/warden_compare/src",
+    "libs/warden_redis/src",
     "services/api/src",
+    "services/scheduler/src",
+    "services/fetcher/src",
+    "services/processor/src",
     "sim/chaos_web/src",
 ]
 explicit_package_bases = true

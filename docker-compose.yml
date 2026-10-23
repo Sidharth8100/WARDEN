@@ -61,11 +61,13 @@ services:
     # AOF (Append-Only File) persistence: every write command is logged to disk.
     # everysec: flush to disk once per second (good balance of safety vs speed).
     # This means at most 1 second of data loss if Redis crashes.
-    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec", "--aclfile", "/etc/redis/users.acl"]
+    env_file: [.runtime/redis-health.env]
     volumes:
       - redisdata:/data
+      - ./redis/users.acl:/etc/redis/users.acl:ro
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "--user", "health", "ping"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -81,9 +83,10 @@ services:
     # -s3: enable the S3-compatible API
     # -s3.port=8333: the S3 API listens on port 8333
     # -dir=/data: store all data in the named volume
-    command: ["server", "-s3", "-dir=/data", "-s3.port=8333"]
+    command: ["server", "-s3", "-dir=/data", "-s3.port=8333", "-s3.config=/etc/seaweedfs/s3config.json"]
     volumes:
       - objectdata:/data
+      - ./seaweedfs/s3config.json:/etc/seaweedfs/s3config.json:ro
 
   # ============================================================================
   # MAILPIT - Development-only fake SMTP server.
@@ -121,8 +124,7 @@ services:
       # service name), not "localhost". Docker's internal DNS resolves service
       # names to container IPs automatically.
       WARDEN_DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
-      WARDEN_REDIS_URL: "redis://redis:6379/0"
-      WARDEN_OBJECTSTORE_URL: "http://objectstore:8333"
+      WARDEN_OBJECTSTORE_URL: "http://objectstore:9333"
       WARDEN_ALEMBIC_INI_PATH: "/app/db/alembic.ini"
     depends_on:
       postgres:
@@ -137,14 +139,16 @@ services:
   # API - The FastAPI application.
   # Starts ONLY after migrate completes successfully.
   # ============================================================================
-  api:
+  api: &api
+    env_file: [.runtime/api.env]
+    volumes:
+      - ./keys:/app/keys:ro
     build:
       context: .
       dockerfile: services/api/Dockerfile
     environment:
       WARDEN_DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
-      WARDEN_REDIS_URL: "redis://redis:6379/0"
-      WARDEN_OBJECTSTORE_URL: "http://objectstore:8333"
+      WARDEN_OBJECTSTORE_URL: "http://objectstore:9333"
       WARDEN_ALEMBIC_INI_PATH: "/app/db/alembic.ini"
       WARDEN_LOG_LEVEL: "${WARDEN_LOG_LEVEL:-INFO}"
       WARDEN_JSON_LOGS: "${WARDEN_JSON_LOGS:-true}"
@@ -211,6 +215,66 @@ services:
     depends_on:
       selenium-hub:
         condition: service_healthy
+    restart: unless-stopped
+
+  api2:
+    <<: *api
+    ports:
+      - "127.0.0.1:18001:8000"
+
+  objectstore-bootstrap:
+    build:
+      context: .
+      dockerfile: services/fetcher/Dockerfile
+    env_file: [.runtime/bootstrap.env]
+    command: ["python", "-m", "warden_net.bootstrap"]
+    depends_on:
+      objectstore:
+        condition: service_started
+    restart: on-failure
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: services/scheduler/Dockerfile
+    env_file: [.runtime/scheduler.env]
+    environment:
+      WARDEN_DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  fetcher:
+    build:
+      context: .
+      dockerfile: services/fetcher/Dockerfile
+    env_file: [.runtime/fetcher.env]
+    environment:
+      WARDEN_SSRF_ALLOWLIST: "chaos-web"
+    depends_on:
+      redis:
+        condition: service_healthy
+      objectstore-bootstrap:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  processor:
+    build:
+      context: .
+      dockerfile: services/processor/Dockerfile
+    env_file: [.runtime/processor.env]
+    environment:
+      WARDEN_DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      objectstore-bootstrap:
+        condition: service_completed_successfully
     restart: unless-stopped
 
 volumes:

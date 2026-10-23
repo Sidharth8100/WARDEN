@@ -88,6 +88,31 @@ def test_node_move_detection():
     assert len(moves) >= 1
 
 
+def test_tail_text_change_is_hashed_and_reported():
+    before = hash_tree(lxml.html.fromstring("<p><b>Price</b> $10</p>"))
+    after = hash_tree(lxml.html.fromstring("<p><b>Price</b> $20</p>"))
+    assert before.node_hash != after.node_hash
+    assert any(
+        isinstance(op, TreeTextEdit) and op.new_text == "$20" for op in diff_trees(before, after)
+    )
+
+
+def test_attribute_delimiters_do_not_alias_distinct_trees():
+    before = hash_tree(lxml.html.fromstring('<p a="b;c=d">x</p>'))
+    after = hash_tree(lxml.html.fromstring('<p a="b" c="d">x</p>'))
+    assert before.node_hash != after.node_hash
+    assert diff_trees(before, after)
+
+
+def test_move_does_not_hide_adjacent_edit_or_duplicate_sibling():
+    before = hash_tree(lxml.html.fromstring("<div><p>A</p><p>B</p><p>B</p></div>"))
+    after = hash_tree(lxml.html.fromstring("<div><p>B</p><p>C</p><p>B</p></div>"))
+    ops = diff_trees(before, after)
+    assert any(
+        isinstance(op, TreeTextEdit) and op.old_text == "A" and op.new_text == "C" for op in ops
+    )
+
+
 @settings(max_examples=30, deadline=None)
 @given(
     tag=st.sampled_from(["div", "p", "span", "section"]),

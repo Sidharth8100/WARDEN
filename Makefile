@@ -35,7 +35,7 @@ lint:
 types:
 	# Run mypy static type checker on all source directories.
 	# strict mode: no Any, no missing return types, no untyped functions.
-	uv run mypy libs/warden_core/src libs/warden_db/src libs/warden_net/src libs/warden_fetch/src libs/warden_compare/src services/api/src sim/chaos_web/src
+	uv run mypy libs/*/src services/*/src sim/*/src
 
 test:
 	# Run all tests (unit + integration if Postgres is reachable).
@@ -43,7 +43,7 @@ test:
 	uv run pytest -q
 
 check-todos:
-	# Run tests for student-implemented functions (tagged with @pytest.mark.student_todo)
+	# Run the legacy algorithm marker; implementations are now included in make check.
 	uv run pytest -q -m student_todo
 
 capture-pair:

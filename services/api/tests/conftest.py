@@ -24,7 +24,7 @@ from warden_api.main import create_app
 from warden_api.settings import get_settings
 from warden_db.models import User
 
-DEFAULT_DEV_DB_URL = "postgresql+asyncpg://warden:Flame%402005Kaiser@127.0.0.1:5433/warden"
+DEFAULT_DEV_DB_URL = "postgresql+asyncpg://test:test@127.0.0.1:5433/warden_test"
 
 
 def _is_postgres_reachable(host: str = "127.0.0.1", port: int = 5433) -> bool:
@@ -61,7 +61,7 @@ def patch_env(monkeypatch: pytest.MonkeyPatch) -> None:
             else "postgresql+asyncpg://test:test@localhost:5432/test"
         )
     monkeypatch.setenv("WARDEN_DATABASE_URL", db_url)
-    monkeypatch.setenv("WARDEN_REDIS_URL", "redis://127.0.0.1:6379/0")
+    monkeypatch.setenv("WARDEN_REDIS_URL", "redis://api:test@127.0.0.1:6379/0")
     monkeypatch.setenv("WARDEN_ENV", "dev")
     monkeypatch.setenv("WARDEN_JWT_PRIVATE_KEY_PATH", "keys/jwt_ed25519_private.pem")
     monkeypatch.setenv("WARDEN_JWT_PUBLIC_KEY_PATH", "keys/jwt_ed25519_public.pem")
@@ -93,9 +93,9 @@ def fast_hasher(monkeypatch: pytest.MonkeyPatch) -> PasswordHasher:
 @pytest_asyncio.fixture
 async def db_engine() -> AsyncGenerator[AsyncEngine, None]:
     """Provide an async database engine when live postgres is reachable."""
-    if not _is_postgres_reachable():
+    if not os.environ.get("WARDEN_TEST_DATABASE_URL") or not _is_postgres_reachable():
         pytest.skip("Postgres on localhost:5433 is unreachable")
-    url = os.environ.get("WARDEN_DATABASE_URL", DEFAULT_DEV_DB_URL)
+    url = os.environ.get("WARDEN_TEST_DATABASE_URL", DEFAULT_DEV_DB_URL)
     engine = create_async_engine(url, pool_pre_ping=True)
     yield engine
     await engine.dispose()
@@ -114,7 +114,7 @@ async def live_redis() -> AsyncGenerator[Redis, None]:  # type: ignore[type-arg]
     """Provide a live Redis client if available."""
     if not _is_redis_reachable():
         pytest.skip("Redis on localhost:6379 is unreachable")
-    client = Redis.from_url("redis://127.0.0.1:6379/0", decode_responses=True)
+    client = Redis.from_url("redis://api:test@127.0.0.1:6379/0", decode_responses=True)
     yield client
     await client.aclose()
 
@@ -127,11 +127,15 @@ async def client(fast_hasher: PasswordHasher) -> AsyncGenerator[AsyncClient, Non
     """
     app = create_app()
 
-    if _is_postgres_reachable() and _is_redis_reachable():
-        url = os.environ.get("WARDEN_DATABASE_URL", DEFAULT_DEV_DB_URL)
+    if (
+        os.environ.get("WARDEN_TEST_DATABASE_URL")
+        and _is_postgres_reachable()
+        and _is_redis_reachable()
+    ):
+        url = os.environ.get("WARDEN_TEST_DATABASE_URL", DEFAULT_DEV_DB_URL)
         engine = create_async_engine(url, pool_pre_ping=True)
         sessionmaker = async_sessionmaker(bind=engine, expire_on_commit=False)
-        redis_client = Redis.from_url("redis://127.0.0.1:6379/0", decode_responses=False)
+        redis_client = Redis.from_url("redis://api:test@127.0.0.1:6379/0", decode_responses=False)
         app.state.engine = engine
         app.state.sessionmaker = sessionmaker
         app.state.redis = redis_client
@@ -157,6 +161,7 @@ async def client(fast_hasher: PasswordHasher) -> AsyncGenerator[AsyncClient, Non
         mock_sessionmaker.return_value.__aexit__ = AsyncMock(return_value=False)
         app.state.sessionmaker = mock_sessionmaker
         mock_redis = AsyncMock()
+        mock_redis.exists = AsyncMock(return_value=0)
         mock_redis.ping = AsyncMock(return_value=True)
         app.state.redis = mock_redis
         mock_http = AsyncMock()

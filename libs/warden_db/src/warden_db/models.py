@@ -481,3 +481,38 @@ class IdempotencyKey(Base):
     )
 
     user: Mapped["User"] = relationship(back_populates="idempotency_keys")
+
+
+class SchedulerFence(Base):
+    """One shared high-water term; lock this row before any scheduler DB writes."""
+
+    __tablename__ = "scheduler_fences"
+    role: Mapped[str] = mapped_column(Text, primary_key=True)
+    token: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+
+class CrawlJob(Base):
+    """Durable accepted-job ledger and idempotent processing receipt.
+
+    Lock its monitor first, then this row. Status changes and business effects
+    commit together. Payloads from the untrusted fetcher must match this ledger.
+    """
+
+    __tablename__ = "crawl_jobs"
+    __table_args__ = (
+        CheckConstraint("status IN ('queued', 'completed', 'failed')", name="status_valid"),
+        Index("ix_crawl_jobs_monitor_completed", "monitor_id", "completed_at"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    monitor_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("monitors.id", ondelete="CASCADE"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'queued'"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    changed: Mapped[bool | None] = mapped_column(Boolean)
+    error: Mapped[str | None] = mapped_column(Text)
+    snapshot_id: Mapped[int | None] = mapped_column(BigInteger, unique=True)
+    event_id: Mapped[int | None] = mapped_column(BigInteger, unique=True)

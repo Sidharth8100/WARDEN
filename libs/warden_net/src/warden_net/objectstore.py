@@ -6,7 +6,7 @@ which degrade filesystem and index performance.
 """
 
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import aioboto3  # type: ignore[import-untyped]
 from botocore.config import Config  # type: ignore[import-untyped]
@@ -18,8 +18,8 @@ class ObjectStoreConfig:
     """Configuration for connecting to an S3-compatible object store."""
 
     endpoint_url: str
-    access_key: str
-    secret_key: str
+    access_key: str = field(repr=False)
+    secret_key: str = field(repr=False)
     bucket: str
 
 
@@ -62,8 +62,12 @@ async def put_blob(
     return blob_hash
 
 
-async def get_blob(client_config: ObjectStoreConfig, key_or_hash: str) -> bytes:
+async def get_blob(
+    client_config: ObjectStoreConfig, key_or_hash: str, *, max_bytes: int = 10_000_000
+) -> bytes:
     """Retrieve raw bytes for an object key or hash."""
+    if max_bytes <= 0:
+        raise ValueError("max_bytes must be positive")
     key = compute_blob_key(key_or_hash) if not key_or_hash.startswith("blobs/") else key_or_hash
 
     session = aioboto3.Session()
@@ -79,8 +83,18 @@ async def get_blob(client_config: ObjectStoreConfig, key_or_hash: str) -> bytes:
             Bucket=client_config.bucket,
             Key=key,
         )
-        data: bytes = await response["Body"].read()
-        return data
+        body = response["Body"]
+        chunks: list[bytes] = []
+        total = 0
+        async with body:
+            while True:
+                chunk: bytes = await body.read(min(65_536, max_bytes + 1 - total))
+                if not chunk:
+                    return b"".join(chunks)
+                total += len(chunk)
+                if total > max_bytes:
+                    raise ValueError("object exceeds processing byte budget")
+                chunks.append(chunk)
 
 
 async def blob_exists(client_config: ObjectStoreConfig, key_or_hash: str) -> bool:

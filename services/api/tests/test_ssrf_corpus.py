@@ -7,7 +7,6 @@ Contains:
 3. Extension guidelines for human study protocol to add 20-30 additional hostile test vectors.
 """
 
-import contextlib
 import ipaddress
 from ipaddress import IPv4Address, IPv6Address
 from unittest.mock import AsyncMock, patch
@@ -134,7 +133,6 @@ def reference_is_blocked(ip: IPv4Address | IPv6Address) -> str | None:
 async def test_hostile_urls_rejected(url: str) -> None:
     with (
         patch("warden_net.ssrf_check.is_blocked_ip", side_effect=reference_is_blocked),
-        contextlib.suppress(Exception),
     ):
         result = await validate_url_is_safe(url)
         assert result.safe is False, f"Expected hostile URL to be rejected: {url}"

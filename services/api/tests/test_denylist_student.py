@@ -5,6 +5,7 @@ Run them with: make check-todos (or uv run pytest -q -m student_todo).
 """
 
 import asyncio
+import os
 import uuid
 
 import pytest
@@ -16,7 +17,10 @@ from warden_api.security.denylist import add_to_denylist, is_denylisted
 @pytest.fixture
 async def redis_client():
     """Connect to the local dev Redis instance on port 6379."""
-    client = Redis.from_url("redis://127.0.0.1:6379/0", decode_responses=True)
+    url = os.environ.get("WARDEN_TEST_REDIS_API_URL")
+    if not url:
+        pytest.skip("authenticated WARDEN_TEST_REDIS_API_URL required")
+    client = Redis.from_url(url, decode_responses=True, socket_connect_timeout=1, socket_timeout=1)
     try:
         await client.ping()
     except Exception:

@@ -42,7 +42,7 @@ async def test_put_and_get_blob_mocked(store_config: ObjectStoreConfig) -> None:
     mock_client.__aexit__.return_value = None
 
     mock_body = AsyncMock()
-    mock_body.read = AsyncMock(return_value=data)
+    mock_body.read = AsyncMock(side_effect=[data[:4], data[4:], b""])
     mock_client.get_object.return_value = {"Body": mock_body}
 
     with patch("aioboto3.Session.client", return_value=mock_client):
@@ -66,3 +66,20 @@ async def test_blob_exists_and_bucket_creation(store_config: ObjectStoreConfig) 
 
         await ensure_bucket_exists(store_config)
         mock_client.head_bucket.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_get_blob_rejects_oversized_chunked_body_and_closes_it(
+    store_config: ObjectStoreConfig,
+) -> None:
+    client = AsyncMock()
+    client.__aenter__.return_value = client
+    body = AsyncMock()
+    body.read.side_effect = [b"abc", b"def"]
+    client.get_object.return_value = {"Body": body}
+    with (
+        patch("aioboto3.Session.client", return_value=client),
+        pytest.raises(ValueError, match="byte budget"),
+    ):
+        await get_blob(store_config, "test", max_bytes=5)
+    body.__aexit__.assert_awaited_once()

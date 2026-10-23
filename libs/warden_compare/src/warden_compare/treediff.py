@@ -1,6 +1,8 @@
 """Merkle-tree hashing and structural DOM diffing."""
 
 import hashlib
+import json
+from collections import defaultdict, deque
 from dataclasses import dataclass
 from typing import Any
 
@@ -16,6 +18,7 @@ class HashedNode:
     text: str
     children: list["HashedNode"]
     node_hash: str
+    tail: str = ""
 
 
 @dataclass(frozen=True)
@@ -58,22 +61,25 @@ def hash_tree(element: Any) -> HashedNode:
     """Recursively compute Merkle tree hashes for an lxml element tree.
 
     MERKLE INVARIANT:
-    node_hash = sha256(tag + sorted_attrs + text + concatenated_child_hashes).
-    If two subtrees have identical hashes, they are guaranteed structurally and
-    textually identical, allowing diff_trees to skip descending into them.
+    Hash an unambiguous JSON tuple of normalized fields and child hashes.
+    Tail text belongs to an element's following text segment and must be included.
+    Equal hashes allow a subtree skip under SHA-256's collision assumption.
     """
     tag = element.tag if isinstance(element.tag, str) else "node"
     attrs = dict(sorted(element.attrib.items())) if hasattr(element, "attrib") else {}
     text = (element.text or "").strip() if hasattr(element, "text") else ""
+    tail = (element.tail or "").strip() if hasattr(element, "tail") else ""
 
     children: list[HashedNode] = []
     for child in element:
         if isinstance(child, lxml.html.HtmlElement):
             children.append(hash_tree(child))
 
-    child_hashes = "".join(c.node_hash for c in children)
-    attrs_str = ";".join(f"{k}={v}" for k, v in attrs.items())
-    raw_payload = f"{tag}|{attrs_str}|{text}|{child_hashes}".encode()
+    raw_payload = json.dumps(
+        [tag, attrs, text, tail, [c.node_hash for c in children]],
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
     node_hash = hashlib.sha256(raw_payload).hexdigest()
 
     return HashedNode(
@@ -82,6 +88,7 @@ def hash_tree(element: Any) -> HashedNode:
         text=text,
         children=children,
         node_hash=node_hash,
+        tail=tail,
     )
 
 
@@ -110,47 +117,38 @@ def diff_trees(old: HashedNode, new: HashedNode, path: str = "/") -> list[TreeOp
     # Text modification
     if old.text != new.text:
         ops.append(TreeTextEdit(path=path, old_text=old.text, new_text=new.text))
+    if old.tail != new.tail:
+        ops.append(
+            TreeTextEdit(path=f"{path.rstrip('/')}/tail()", old_text=old.tail, new_text=new.tail)
+        )
 
     # Child alignment and matching
     old_children = list(old.children)
     new_children = list(new.children)
 
-    # Check for node moves: identical child hash present in both at different positions
-    old_hash_to_idx = {c.node_hash: i for i, c in enumerate(old_children)}
-    new_hash_to_idx = {c.node_hash: i for i, c in enumerate(new_children)}
-
-    moved_hashes = set(old_hash_to_idx.keys()) & set(new_hash_to_idx.keys())
-    # Exclude items that stayed at the exact same index
-    actual_moves = {h for h in moved_hashes if old_hash_to_idx[h] != new_hash_to_idx[h]}
-
-    for h in sorted(actual_moves):
-        old_idx = old_hash_to_idx[h]
-        new_idx = new_hash_to_idx[h]
-        ops.append(
-            TreeMove(
-                from_path=f"{path}child[{old_idx}]",
-                to_path=f"{path}child[{new_idx}]",
-            )
-        )
-
-    # Positional child recursion for un-moved children
-    min_len = min(len(old_children), len(new_children))
-    for i in range(min_len):
-        child_path = f"{path}child[{i}]"
-        c_old = old_children[i]
-        c_new = new_children[i]
-        if c_old.node_hash not in actual_moves and c_new.node_hash not in actual_moves:
-            ops.extend(diff_trees(c_old, c_new, path=child_path))
-
-    # Deletions of excess old children
-    if len(old_children) > len(new_children):
-        for i in range(len(new_children), len(old_children)):
-            ops.append(TreeDelete(path=f"{path}child[{i}]"))
-
-    # Insertions of new children
-    if len(new_children) > len(old_children):
-        for i in range(len(old_children), len(new_children)):
-            c = new_children[i]
-            ops.append(TreeInsert(path=f"{path}child[{i}]", tag=c.tag, text=c.text))
+    # Match every duplicate occurrence independently. A hash->one-index map
+    # silently drops siblings; skipping both positions of a move can also hide
+    # the replacement next to it (old A,B -> new B,C).
+    positions: dict[str, deque[int]] = defaultdict(deque)
+    for index, child in enumerate(new_children):
+        positions[child.node_hash].append(index)
+    matched_old, matched_new = set(), set()
+    prefix = path.rstrip("/")
+    for old_index, child in enumerate(old_children):
+        if positions[child.node_hash]:
+            new_index = positions[child.node_hash].popleft()
+            matched_old.add(old_index)
+            matched_new.add(new_index)
+            if old_index != new_index:
+                ops.append(TreeMove(f"{prefix}/child[{old_index}]", f"{prefix}/child[{new_index}]"))
+    left = [(i, c) for i, c in enumerate(old_children) if i not in matched_old]
+    right = [(i, c) for i, c in enumerate(new_children) if i not in matched_new]
+    paired = min(len(left), len(right))
+    for (_, old_child), (index, new_child) in zip(left[:paired], right[:paired], strict=True):
+        ops.extend(diff_trees(old_child, new_child, path=f"{prefix}/child[{index}]"))
+    for index, _ in left[paired:]:
+        ops.append(TreeDelete(path=f"{prefix}/child[{index}]"))
+    for index, child in right[paired:]:
+        ops.append(TreeInsert(path=f"{prefix}/child[{index}]", tag=child.tag, text=child.text))
 
     return ops

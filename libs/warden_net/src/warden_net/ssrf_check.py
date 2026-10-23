@@ -56,14 +56,14 @@ async def resolve_host(host: str) -> list[IPv4Address | IPv6Address]:
     """
     # Clean bracketed IPv6 literals (e.g. "[::1]")
     clean_host = host[1:-1] if (host.startswith("[") and host.endswith("]")) else host
+    if clean_host.lower() == "localhost" or clean_host.lower().endswith(".localhost"):
+        # Special-use loopback names never need external DNS, including in
+        # restricted test environments whose resolver cannot complete queries.
+        return [IPv4Address("127.0.0.1"), IPv6Address("::1")]
 
-    try:
-        literal = parse_ip_literal(clean_host)
-        if literal is not None:
-            return [literal]
-    except NotImplementedError:
-        # Fallback when student stub has not yet been implemented
-        pass
+    literal = parse_ip_literal(clean_host)
+    if literal is not None:
+        return [literal]
 
     loop = asyncio.get_running_loop()
     addr_info = await loop.getaddrinfo(clean_host, None)
@@ -122,11 +122,7 @@ async def validate_url_is_safe(
 
     # Verify every IP
     for ip in resolved:
-        try:
-            blocked_reason = is_blocked_ip(ip)
-        except NotImplementedError:
-            # When student stub is not yet implemented, default to unblocked
-            blocked_reason = None
+        blocked_reason = is_blocked_ip(ip)
 
         if blocked_reason is not None:
             # Information leakage note: Detailed server-side reasons are stored in

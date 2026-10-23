@@ -6,8 +6,11 @@ from dataclasses import dataclass
 
 import httpx
 from protego import Protego
+from redis.asyncio import Redis
 
+from warden_core.bloomfilter import BloomFilter
 from warden_fetch.tier1 import fetch_tier1
+from warden_redis.cache import cache_get, cache_put
 
 # WHY PROTEGO OVER STDLIB URLLIB.ROBOTPARSER?
 # Python's built-in urllib.robotparser fails on modern robots.txt syntax:
@@ -30,6 +33,7 @@ class RobotsDecision:
 # Replaced by the hand-rolled LRU+TTL cache wired in on Day 8.
 _ROBOTS_CACHE: dict[str, tuple[float, Protego]] = {}
 _DEFAULT_TTL_S = 3600.0  # 1 hour cache TTL
+_ROBOTS_SEEN = BloomFilter(4096, 0.01)
 
 
 def _get_robots_url(target_url: str) -> tuple[str, str]:
@@ -43,6 +47,8 @@ def _get_robots_url(target_url: str) -> tuple[str, str]:
 def clear_robots_cache() -> None:
     """Clear cached robots.txt entries (for testing)."""
     _ROBOTS_CACHE.clear()
+    global _ROBOTS_SEEN
+    _ROBOTS_SEEN = BloomFilter(4096, 0.01)
 
 
 async def is_fetch_allowed(
@@ -50,6 +56,7 @@ async def is_fetch_allowed(
     user_agent: str = "WardenBot",
     *,
     extra_allowed_hosts: frozenset[str] = frozenset(),
+    redis: Redis | None = None,
 ) -> RobotsDecision:
     """Evaluate robots.txt policy for a target URL and User-Agent.
 
@@ -61,7 +68,12 @@ async def is_fetch_allowed(
     now = time.monotonic()
 
     # Check in-process cache
-    cached = _ROBOTS_CACHE.get(origin)
+    if redis is not None:
+        raw = await cache_get(redis, "robots", origin)
+        if raw is not None:
+            parser = Protego.parse(raw.decode("utf-8", errors="replace"))
+            return RobotsDecision(parser.can_fetch(url, user_agent), parser.crawl_delay(user_agent))
+    cached = _ROBOTS_CACHE.get(origin) if origin.encode() in _ROBOTS_SEEN else None
     if cached is not None:
         cached_time, parser = cached
         if now - cached_time < _DEFAULT_TTL_S:
@@ -69,6 +81,8 @@ async def is_fetch_allowed(
             delay = parser.crawl_delay(user_agent)
             return RobotsDecision(allowed=allowed, crawl_delay=delay)
 
+    # Cache raw policy so every process can parse the same portable representation.
+    robots_content = ""
     # Fetch /robots.txt via tier-1 (with SSRF check)
     try:
         tier1_res = await fetch_tier1(
@@ -86,7 +100,20 @@ async def is_fetch_allowed(
         # Unreachable robots.txt defaults to allowed per standard crawler convention
         parser = Protego.parse("")
 
-    _ROBOTS_CACHE[origin] = (now, parser)
+    if redis is not None:
+        await cache_put(
+            redis,
+            "robots",
+            origin,
+            robots_content.encode(),
+            ttl_seconds=int(_DEFAULT_TTL_S),
+            max_entries=4096,
+        )
+    else:
+        if len(_ROBOTS_CACHE) >= 4096:
+            clear_robots_cache()
+        _ROBOTS_CACHE[origin] = (now, parser)
+        _ROBOTS_SEEN.add(origin.encode())
     allowed = parser.can_fetch(url, user_agent)
     delay = parser.crawl_delay(user_agent)
     return RobotsDecision(allowed=allowed, crawl_delay=delay)

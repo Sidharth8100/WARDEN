@@ -160,3 +160,21 @@ def test_bounded_loads_cap_against_brute_arithmetic() -> None:
         ring.report_load(member, 1)
         assert loads[member] <= math.ceil(1.25 * (i + 1) / len(members))
     assert max(loads.values()) / (5000 / len(members)) <= 1.251
+
+
+def test_heterogeneous_budget_bounds_preserve_common_kkt_multiplier() -> None:
+    inputs = [
+        MonitorBudgetInput("a", 0.01),
+        MonitorBudgetInput("b", 0.04),
+        MonitorBudgetInput("c", 1),
+    ]
+    result = solve_crawl_intervals(
+        inputs,
+        total_budget_per_second=0.1,
+        min_interval_s=1,
+        max_interval_s=1000,
+        interval_bounds={"a": (10, 1000), "b": (10, 1000), "c": (80, 200)},
+    )
+    assert result["c"] == 80
+    assert result["a"] / result["b"] == pytest.approx(2)
+    assert sum(1 / value for value in result.values()) == pytest.approx(0.1)

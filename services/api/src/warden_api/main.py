@@ -47,7 +47,6 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 import httpx
-import redis.asyncio as aioredis
 import structlog
 from fastapi import FastAPI
 
@@ -58,6 +57,8 @@ from warden_api.logconfig import configure_logging
 from warden_api.middleware import RequestIDMiddleware
 from warden_api.monitors import router as monitors_router
 from warden_api.settings import Settings, get_settings
+from warden_api.websocket import router as websocket_router
+from warden_redis.client import connect
 
 _log = structlog.get_logger(__name__)
 
@@ -96,10 +97,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # This means the API boots successfully even if Redis is temporarily down.
     # decode_responses=True: Redis returns Python str instead of bytes,
     # which is more convenient for working with string keys and values.
-    redis_client = aioredis.from_url(
-        settings.redis_url.get_secret_value(),
-        decode_responses=True,
-    )
+    redis_client = connect(settings.redis_url.get_secret_value(), "api")
     app.state.redis = redis_client
     _log.info("redis_client_created")
 
@@ -121,21 +119,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             ),
             allowed_hosts=settings.ssrf_test_allowlist,
         )
-
-    # --- Object Store Bucket Initialization ----------------------------
-    from warden_net.objectstore import ObjectStoreConfig, ensure_bucket_exists
-
-    obj_cfg = ObjectStoreConfig(
-        endpoint_url=settings.objectstore_endpoint,
-        access_key=settings.objectstore_access_key.get_secret_value(),
-        secret_key=settings.objectstore_secret_key.get_secret_value(),
-        bucket=settings.objectstore_bucket,
-    )
-    try:
-        await ensure_bucket_exists(obj_cfg)
-        _log.info("objectstore_bucket_verified", bucket=settings.objectstore_bucket)
-    except Exception as exc:
-        _log.warning("objectstore_bucket_init_skipped", error=str(exc))
 
     # Everything is set up - hand control to FastAPI to serve requests.
     yield
@@ -220,5 +203,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health_router)
     app.include_router(auth_router)
     app.include_router(monitors_router)
+    app.include_router(websocket_router)
 
     return app

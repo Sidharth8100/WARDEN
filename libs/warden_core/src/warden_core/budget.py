@@ -75,6 +75,7 @@ def solve_crawl_intervals(
     total_budget_per_second: float,
     min_interval_s: float,
     max_interval_s: float,
+    interval_bounds: dict[str, tuple[float, float]] | None = None,
 ) -> dict[str, float]:
     """Minimize sum(w*lambda*I/2) with sum(1/I)<=B and explicit bounds.
 
@@ -95,17 +96,27 @@ def solve_crawl_intervals(
         for m in monitors
     ):
         raise ValueError("nonnegative finite rates and positive finite weights required")
+    bounds = {
+        m.monitor_id: (interval_bounds or {}).get(m.monitor_id, (min_interval_s, max_interval_s))
+        for m in monitors
+    }
+    if any(
+        not math.isfinite(lo) or not math.isfinite(hi) or lo <= 0 or hi < lo
+        for lo, hi in bounds.values()
+    ):
+        raise ValueError("per-monitor bounds must be finite, positive and ordered")
     if not monitors:
         return {}
-    if total_budget_per_second < len(monitors) / max_interval_s:
+    if total_budget_per_second < sum(1 / hi for _, hi in bounds.values()):
         raise ValueError("budget cannot fund every monitor at its maximum interval")
 
     def intervals(mu: float) -> dict[str, float]:
         return {
-            m.monitor_id: max_interval_s
+            m.monitor_id: bounds[m.monitor_id][1]
             if m.change_rate == 0
             else min(
-                max_interval_s, max(min_interval_s, math.sqrt(2 * mu / (m.weight * m.change_rate)))
+                bounds[m.monitor_id][1],
+                max(bounds[m.monitor_id][0], math.sqrt(2 * mu / (m.weight * m.change_rate))),
             )
             for m in monitors
         }
@@ -114,7 +125,7 @@ def solve_crawl_intervals(
     if sum(1 / interval for interval in result.values()) <= total_budget_per_second:
         return result
     low = 0.0
-    high = max(m.weight * m.change_rate for m in monitors) * max_interval_s**2 / 2
+    high = max(m.weight * m.change_rate * bounds[m.monitor_id][1] ** 2 / 2 for m in monitors)
     for _ in range(120):
         mid = (low + high) / 2
         candidate = intervals(mid)

@@ -10,11 +10,13 @@ dependencies = [
     "tenacity>=9.0.0",
     "warden-core",
     "warden-net",
+    "warden-redis",
 ]
 
 [tool.uv.sources]
 warden-core = { workspace = true }
 warden-net = { workspace = true }
+warden-redis = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

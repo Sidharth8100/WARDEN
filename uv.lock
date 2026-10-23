@@ -16,7 +16,11 @@ members = [
     "warden-core",
     "warden-db",
     "warden-fetch",
+    "warden-fetcher",
     "warden-net",
+    "warden-processor",
+    "warden-redis",
+    "warden-scheduler",
 ]
 
 [[package]]
@@ -3060,7 +3064,11 @@ dependencies = [
     { name = "warden-core" },
     { name = "warden-db" },
     { name = "warden-fetch" },
+    { name = "warden-fetcher" },
     { name = "warden-net" },
+    { name = "warden-processor" },
+    { name = "warden-redis" },
+    { name = "warden-scheduler" },
 ]
 
 [package.dev-dependencies]
@@ -3086,7 +3094,11 @@ requires-dist = [
     { name = "warden-core", editable = "libs/warden_core" },
     { name = "warden-db", editable = "libs/warden_db" },
     { name = "warden-fetch", editable = "libs/warden_fetch" },
+    { name = "warden-fetcher", editable = "services/fetcher" },
     { name = "warden-net", editable = "libs/warden_net" },
+    { name = "warden-processor", editable = "services/processor" },
+    { name = "warden-redis", editable = "libs/warden_redis" },
+    { name = "warden-scheduler", editable = "services/scheduler" },
 ]
 
 [package.metadata.requires-dev]
@@ -3120,11 +3132,10 @@ dependencies = [
     { name = "redis" },
     { name = "structlog" },
     { name = "uvicorn", extra = ["standard"] },
-    { name = "warden-compare" },
     { name = "warden-core" },
     { name = "warden-db" },
-    { name = "warden-fetch" },
     { name = "warden-net" },
+    { name = "warden-redis" },
     { name = "zxcvbn" },
 ]
 
@@ -3142,11 +3153,10 @@ requires-dist = [
     { name = "redis", specifier = ">=8.1.0" },
     { name = "structlog", specifier = ">=26.1.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.54.0" },
-    { name = "warden-compare", editable = "libs/warden_compare" },
     { name = "warden-core", editable = "libs/warden_core" },
     { name = "warden-db", editable = "libs/warden_db" },
-    { name = "warden-fetch", editable = "libs/warden_fetch" },
     { name = "warden-net", editable = "libs/warden_net" },
+    { name = "warden-redis", editable = "libs/warden_redis" },
     { name = "zxcvbn", specifier = ">=4.4.28" },
 ]
 
@@ -3190,6 +3200,7 @@ dependencies = [
     { name = "alembic" },
     { name = "asyncpg" },
     { name = "sqlalchemy", extra = ["asyncio"] },
+    { name = "warden-core" },
 ]
 
 [package.metadata]
@@ -3197,6 +3208,7 @@ requires-dist = [
     { name = "alembic", specifier = ">=1.20.0" },
     { name = "asyncpg", specifier = ">=0.31.0" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.1.1" },
+    { name = "warden-core", editable = "libs/warden_core" },
 ]
 
 [[package]]
@@ -3210,6 +3222,7 @@ dependencies = [
     { name = "tenacity" },
     { name = "warden-core" },
     { name = "warden-net" },
+    { name = "warden-redis" },
 ]
 
 [package.metadata]
@@ -3220,6 +3233,28 @@ requires-dist = [
     { name = "tenacity", specifier = ">=9.0.0" },
     { name = "warden-core", editable = "libs/warden_core" },
     { name = "warden-net", editable = "libs/warden_net" },
+    { name = "warden-redis", editable = "libs/warden_redis" },
+]
+
+[[package]]
+name = "warden-fetcher"
+version = "0.1.0"
+source = { editable = "services/fetcher" }
+dependencies = [
+    { name = "structlog" },
+    { name = "warden-core" },
+    { name = "warden-fetch" },
+    { name = "warden-net" },
+    { name = "warden-redis" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "structlog", specifier = ">=26.1.0" },
+    { name = "warden-core", editable = "libs/warden_core" },
+    { name = "warden-fetch", editable = "libs/warden_fetch" },
+    { name = "warden-net", editable = "libs/warden_net" },
+    { name = "warden-redis", editable = "libs/warden_redis" },
 ]
 
 [[package]]
@@ -3241,6 +3276,65 @@ requires-dist = [
     { name = "idna", specifier = ">=3.7" },
     { name = "tldextract", specifier = ">=5.1.0" },
     { name = "warden-core", editable = "libs/warden_core" },
+]
+
+[[package]]
+name = "warden-processor"
+version = "0.1.0"
+source = { editable = "services/processor" }
+dependencies = [
+    { name = "structlog" },
+    { name = "warden-compare" },
+    { name = "warden-core" },
+    { name = "warden-db" },
+    { name = "warden-net" },
+    { name = "warden-redis" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "structlog", specifier = ">=26.1.0" },
+    { name = "warden-compare", editable = "libs/warden_compare" },
+    { name = "warden-core", editable = "libs/warden_core" },
+    { name = "warden-db", editable = "libs/warden_db" },
+    { name = "warden-net", editable = "libs/warden_net" },
+    { name = "warden-redis", editable = "libs/warden_redis" },
+]
+
+[[package]]
+name = "warden-redis"
+version = "0.1.0"
+source = { editable = "libs/warden_redis" }
+dependencies = [
+    { name = "redis" },
+    { name = "structlog" },
+    { name = "warden-core" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "redis", specifier = ">=8.1.0" },
+    { name = "structlog", specifier = ">=26.1.0" },
+    { name = "warden-core", editable = "libs/warden_core" },
+]
+
+[[package]]
+name = "warden-scheduler"
+version = "0.1.0"
+source = { editable = "services/scheduler" }
+dependencies = [
+    { name = "structlog" },
+    { name = "warden-core" },
+    { name = "warden-db" },
+    { name = "warden-redis" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "structlog", specifier = ">=26.1.0" },
+    { name = "warden-core", editable = "libs/warden_core" },
+    { name = "warden-db", editable = "libs/warden_db" },
+    { name = "warden-redis", editable = "libs/warden_redis" },
 ]
 
 [[package]]

@@ -20,6 +20,7 @@ from warden_api.auth.dependencies import get_current_user
 from warden_api.deps import get_db
 from warden_api.errors import APIError
 from warden_api.monitors.validators import validate_selector_config
+from warden_db.dispatch import stage_check
 from warden_db.models import (
     IdempotencyKey,
     Monitor,
@@ -29,6 +30,7 @@ from warden_db.models import (
 )
 from warden_net.canonicalize import canonicalize_url
 from warden_net.ssrf_check import validate_url_is_safe
+from warden_redis.queue import enqueue_job
 
 _log = structlog.get_logger(__name__)
 
@@ -200,7 +202,10 @@ async def create_monitor(
     # INFORMATION LEAKAGE NOTE:
     # We log detailed reasons server-side, but return a generic response to the client
     # so WARDEN cannot be used as an internal network probe.
-    ssrf_check = await validate_url_is_safe(canonical_obj.url)
+    ssrf_check = await validate_url_is_safe(
+        canonical_obj.url,
+        extra_allowed_hosts=frozenset(request.app.state.settings.ssrf_test_allowlist),
+    )
     if not ssrf_check.safe:
         _log.warning(
             "ssrf_rejected_on_monitor_creation",
@@ -732,7 +737,7 @@ async def remove_monitor_tag(
 
 
 # ---------------------------------------------------------------------------
-# Synchronous Pipeline Check (Gate 1)
+# Durable asynchronous check acceptance (Gate 2)
 # ---------------------------------------------------------------------------
 
 
@@ -753,29 +758,33 @@ class ChangeEventResponse(BaseModel):
 
 @router.post(
     "/monitors/{monitor_id}/check",
-    response_model=ChangeEventResponse | None,
-    summary="Synchronously execute a single check on a monitor",
+    status_code=202,
+    summary="Accept a durable monitor check for asynchronous processing",
 )
 async def check_monitor(
     monitor_id: uuid.UUID,
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_db)],
     user: Annotated[User, Depends(get_current_user)],
-) -> Response | ChangeEventResponse:
-    """Run an end-to-end check on a monitor: fetch, diff, and classify.
+) -> dict[str, str]:
+    """Commit the accepted-job ledger/outbox before attempting an immediate enqueue.
 
-    Returns:
-    - 200 with ChangeEvent if a meaningful change was detected.
-    - 204 No Content if no meaningful change occurred, or on first baseline check.
+    Redis outage still returns 202 for a durably accepted job: scheduler's outbox
+    relay retries the handoff. Immediate and relay publishes share a stable job ID.
     """
-    stmt = select(Monitor).where(Monitor.id == monitor_id, Monitor.user_id == user.id)
-    monitor = (await session.execute(stmt)).scalars().first()
-    if not monitor:
-        raise APIError(status_code=404, title="Not Found", detail="Monitor not found")
-
-    from warden_api.pipeline import run_check
-
-    event = await run_check(session, monitor)
-    if event is None:
-        return Response(status_code=204)
-
-    return ChangeEventResponse.model_validate(event)
+    monitor = await session.scalar(
+        select(Monitor)
+        .where(Monitor.id == monitor_id, Monitor.user_id == user.id, Monitor.state == "active")
+        .with_for_update()
+    )
+    if monitor is None:
+        raise APIError(status_code=404, title="Not Found", detail="Active monitor not found")
+    job = stage_check(session, monitor)
+    await session.commit()
+    try:
+        await enqueue_job(request.app.state.redis, "warden:jobs:ingress", job)
+    except Exception as exc:
+        _log.warning(
+            "accepted_check_awaiting_dispatch", job_id=job.job_id, category=type(exc).__name__
+        )
+    return {"monitor_id": str(monitor_id), "job_id": job.job_id, "status": "queued"}

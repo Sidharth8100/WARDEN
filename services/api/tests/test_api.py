@@ -46,7 +46,7 @@ def patch_env(monkeypatch: pytest.MonkeyPatch) -> None:
     without needing to declare it explicitly.
     """
     monkeypatch.setenv("WARDEN_DATABASE_URL", "postgresql+asyncpg://test:test@localhost/test")
-    monkeypatch.setenv("WARDEN_REDIS_URL", "redis://localhost:6379/0")
+    monkeypatch.setenv("WARDEN_REDIS_URL", "redis://api:test@localhost:6379/0")
 
 
 @pytest.fixture(autouse=True)
@@ -314,7 +314,7 @@ class TestLifespan:
         os.environ["WARDEN_DATABASE_URL"] = (
             "postgresql+asyncpg://test:test@unreachable_host:5432/test"
         )
-        os.environ["WARDEN_REDIS_URL"] = "redis://unreachable_host:6379/0"
+        os.environ["WARDEN_REDIS_URL"] = "redis://api:test@unreachable_host:6379/0"
 
         from warden_api.main import create_app
         from warden_api.settings import get_settings

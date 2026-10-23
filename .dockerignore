@@ -45,3 +45,11 @@ node_modules
 .vscode
 .idea
 *.swp
+
+# Human-provisioned runtime credentials (never read by agents).
+.runtime/
+redis/users.acl
+seaweedfs/s3config.json
+keys/
+*.pem
+*.key
