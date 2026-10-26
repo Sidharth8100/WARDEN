@@ -3,7 +3,18 @@
 Strictly standard-library only (ipaddress, socket). No network I/O.
 """
 
-from ipaddress import IPv4Address, IPv6Address
+from ipaddress import IPv4Address, IPv6Address, ip_address, ip_network
+
+# High-priority cloud metadata service endpoints (AWS, GCP, Azure, OpenStack IMDS)
+CLOUD_METADATA_IPV4 = IPv4Address("169.254.169.254")
+CLOUD_METADATA_IPV6 = IPv6Address("fd00:ec2::254")
+
+# Carrier-Grade NAT (CGNAT) / Shared Address Space (RFC 6598: 100.64.0.0/10)
+# Standard Python ipaddress does not treat 100.64.0.0/10 as private, so we check explicitly.
+CGNAT_NETWORK = ip_network("100.64.0.0/10")
+
+# "This network" (RFC 1122: 0.0.0.0/8)
+THIS_NETWORK = ip_network("0.0.0.0/8")
 
 # -----------------------------------------------------------------------------
 # Hint Ladder for parse_ip_literal:
@@ -30,30 +41,103 @@ from ipaddress import IPv4Address, IPv6Address
 # -----------------------------------------------------------------------------
 
 
-def parse_ip_literal(host: str) -> IPv4Address | IPv6Address | None:
-    """[YOU IMPLEMENT] If `host` is a LITERAL IP address written in ANY
-    form an attacker might use to confuse a naive parser, return the
-    parsed address. Otherwise (a genuine hostname like "example.com")
-    return None. Must handle at minimum: standard dotted-decimal
-    (127.0.0.1); a bare decimal integer (2130706433); octal octets
-    (0177.0.0.1); hex octets (0x7f.0x0.0x0.0x1) and a bare hex integer
-    (0x7f000001); IPv6 forms including the IPv4-mapped form
-    (::ffff:127.0.0.1) and bare loopback (::1). Do NOT perform any DNS
-    resolution here — literal strings only.
-    Hint L1: Python's ipaddress module already parses standard dotted-decimal
-    and IPv6 — the interesting work is normalizing the NON-standard forms
-    (decimal/octal/hex) into something ipaddress.ip_address() accepts, or
-    computing the integer value yourself and using ipaddress.IPv4Address(int).
-    Hint L2: split on '.', try each octet as int(octet, 0) (what does base=0
-    do in Python's int()?) then check if the whole thing collapses to a
-    single integer (a "decimal IP") by trying int(host, 0) on the whole
-    string first before splitting.
-    Hint L3: int(x, 0) auto-detects 0x/0o/0 prefixes. ipaddress.IPv4Address
-    accepts either a dotted string OR a plain int (the raw 32-bit value).
-    Watch for a bare leading '0' meaning octal in some parsers but not in
-    Python's int(x, 0) — decide and document your behavior, then test it.
+def _parse_octet(part: str) -> int | None:
+    """Parse a single IPv4 octet supporting decimal, octal (0177), and hex (0x7f).
+
+    Returns an integer in [0, 255] on success, or None if invalid.
     """
-    raise NotImplementedError("see docstring")
+    clean_part = part.strip()
+    if not clean_part:
+        return None
+
+    try:
+        # Check for hexadecimal notation (0x7f, 0X7F)
+        if clean_part.lower().startswith("0x"):
+            val = int(clean_part, 16)
+        # Check for octal notation: POSIX leading '0' (e.g. "0177") or Python '0o' prefix
+        elif clean_part.lower().startswith("0o") or (
+            clean_part.startswith("0") and len(clean_part) > 1
+        ):
+            val = int(clean_part, 8)
+        # Standard base-10 decimal notation (e.g., "127")
+        else:
+            val = int(clean_part, 10)
+
+        # Ensure the octet fits within 8 bits (0-255)
+        if 0 <= val <= 255:
+            return val
+        return None
+    except ValueError:
+        # Not a valid numeric octet
+        return None
+
+
+def parse_ip_literal(host: str) -> IPv4Address | IPv6Address | None:
+    """If `host` is a LITERAL IP address written in ANY form an attacker might
+    use to confuse a naive parser, return the parsed address. Otherwise (a genuine
+    hostname like "example.com") return None.
+
+    Handles:
+    - Standard dotted-decimal IPv4 (127.0.0.1)
+    - Bare decimal 32-bit integer (2130706433 -> 127.0.0.1)
+    - Bare hexadecimal 32-bit integer (0x7f000001 -> 127.0.0.1)
+    - Mixed octal octets (0177.0.0.1 -> 127.0.0.1)
+    - Mixed hex octets (0x7f.0x0.0x0.0x1 -> 127.0.0.1)
+    - Standard and mapped IPv6 literals (::1, [::1], fe80::1, ::ffff:127.0.0.1)
+    """
+    if not host or not isinstance(host, str):
+        return None
+
+    # Step 1: Strip surrounding whitespace and URI IPv6 bracket delimiters (e.g., "[::1]" -> "::1")
+    cleaned = host.strip().strip("[]")
+
+    # Step 2: Check for IPv6 literals (IPv6 addresses always contain colons)
+    if ":" in cleaned:
+        try:
+            addr = ip_address(cleaned)
+            if isinstance(addr, IPv6Address):
+                return addr
+        except ValueError:
+            # Contains colons but is not a valid IPv6 literal
+            return None
+
+    # Step 3: Check for bare integer representations of 32-bit IPv4 addresses (no dots)
+    # E.g., decimal "2130706433" or hex "0x7f000001"
+    if "." not in cleaned:
+        try:
+            if cleaned.lower().startswith("0x"):
+                # Parse as hexadecimal
+                val = int(cleaned, 16)
+            elif cleaned.isdigit():
+                # Parse as plain decimal integer
+                val = int(cleaned, 10)
+            else:
+                return None
+
+            # A valid 32-bit IPv4 integer must be between 0 and 2^32 - 1
+            if 0 <= val <= 0xFFFFFFFF:
+                return IPv4Address(val)
+        except ValueError:
+            pass
+        return None
+
+    # Step 4: Check for 4-part dotted IPv4 notation (e.g. 127.0.0.1, 0177.0.0.1, 0x7f.0.0.1)
+    parts = cleaned.split(".")
+    if len(parts) == 4:
+        # Parse each octet with support for decimal, octal, and hex
+        o0 = _parse_octet(parts[0])
+        o1 = _parse_octet(parts[1])
+        o2 = _parse_octet(parts[2])
+        o3 = _parse_octet(parts[3])
+
+        # If all 4 octets parsed successfully within [0, 255]
+        if o0 is not None and o1 is not None and o2 is not None and o3 is not None:
+            # Combine the 4 octets into a single 32-bit unsigned integer using bit shifts
+            val = (o0 << 24) | (o1 << 16) | (o2 << 8) | o3
+            return IPv4Address(val)
+
+    # Step 5: If none of the IP literal patterns match, treat as a regular hostname
+    return None
 
 
 # -----------------------------------------------------------------------------
@@ -90,28 +174,50 @@ def parse_ip_literal(host: str) -> IPv4Address | IPv6Address | None:
 
 
 def is_blocked_ip(ip: IPv4Address | IPv6Address) -> str | None:
-    """[YOU IMPLEMENT] Return a short machine-readable reason string
-    (e.g. "loopback", "private", "link_local", "cloud_metadata",
-    "cgnat", "multicast", "reserved") if `ip` must NEVER be fetched by
-    WARDEN. Return None if it is fetchable. Must block at minimum:
-    loopback; link-local (169.254.0.0/16 AND specifically call out
-    169.254.169.254, the AWS/GCP/Azure metadata address, even though
-    it's already inside that /16 — name it specifically in your reason
-    string so it's auditable in logs); IPv6 link-local (fe80::/10) and
-    the IPv6 metadata address (fd00:ec2::254); RFC1918 private ranges;
-    carrier-grade NAT (100.64.0.0/10); multicast; reserved/unspecified;
-    and an IPv4-mapped IPv6 address (::ffff:x.x.x.x) whose EMBEDDED
-    IPv4 address is itself blocked (recurse into this same function).
-    Hint L1: Python's ipaddress objects expose boolean properties for
-    several of these already — read the ipaddress module docs for
-    IPv4Address/IPv6Address before writing anything by hand.
-    Hint L2: is_private, is_loopback, is_link_local, is_multicast,
-    is_reserved, is_unspecified exist. VERIFY — don't assume — whether
-    is_private on your installed Python version already covers
-    100.64.0.0/10; if not, check containment in that network explicitly
-    with ipaddress.ip_network("100.64.0.0/10").
-    Hint L3: ipaddress.ip_address(x) in ipaddress.ip_network(cidr) does
-    containment. For the IPv4-mapped case, IPv6Address has an
-    `.ipv4_mapped` property returning the embedded IPv4Address or None.
+    """Return a short machine-readable reason string (e.g. "loopback", "private",
+    "link_local", "cloud_metadata", "cgnat", "multicast", "reserved", "unspecified")
+    if `ip` must NEVER be fetched by WARDEN. Return None if it is safe and fetchable.
     """
-    raise NotImplementedError("see docstring")
+    # Step 1: For IPv4-mapped IPv6 addresses (::ffff:x.x.x.x), unwrap the embedded IPv4
+    # address and evaluate it recursively against IPv4 rules.
+    if isinstance(ip, IPv6Address) and ip.ipv4_mapped is not None:
+        return is_blocked_ip(ip.ipv4_mapped)
+
+    # Step 2: Specific high-priority cloud metadata service addresses (IMDS).
+    # AWS/GCP/Azure/OpenStack metadata endpoints (169.254.169.254, fd00:ec2::254).
+    # Must be explicitly identified for security audit logging.
+    if ip in (CLOUD_METADATA_IPV4, CLOUD_METADATA_IPV6):
+        return "cloud_metadata"
+
+    # Step 3: Loopback addresses (127.0.0.0/8, ::1)
+    if ip.is_loopback:
+        return "loopback"
+
+    # Step 4: Link-local addresses (169.254.0.0/16, fe80::/10)
+    if ip.is_link_local:
+        return "link_local"
+
+    # Step 5: Carrier-Grade NAT (CGNAT) / Shared Address Space (RFC 6598: 100.64.0.0/10)
+    # Python's ip.is_private returns False for CGNAT, so we test subnet membership explicitly.
+    if isinstance(ip, IPv4Address) and ip in CGNAT_NETWORK:
+        return "cgnat"
+
+    # Step 6: Multicast addresses (224.0.0.0/4, ff00::/8)
+    if ip.is_multicast:
+        return "multicast"
+
+    # Step 7: Unspecified addresses (0.0.0.0, ::)
+    if ip.is_unspecified:
+        return "unspecified"
+
+    # Step 8: Reserved / limited broadcast addresses (240.0.0.0/4, 0.0.0.0/8, 255.255.255.255)
+    if ip.is_reserved or (isinstance(ip, IPv4Address) and ip in THIS_NETWORK):
+        return "reserved"
+
+    # Step 9: RFC 1918 private IPv4 networks (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
+    # and Unique Local IPv6 Addresses (ULA: fc00::/7)
+    if ip.is_private:
+        return "private"
+
+    # Step 10: Legitimate, publicly routable IP address
+    return None
