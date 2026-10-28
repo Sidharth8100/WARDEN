@@ -21,6 +21,8 @@ dependencies = [
     "warden-net",
     "zxcvbn>=4.4.28",
     "warden-redis",
+    "warden-rules",
+    "warden-observe",
 ]
 
 [tool.uv.sources]
@@ -28,6 +30,8 @@ warden-core = { workspace = true }
 warden-db = { workspace = true }
 warden-net = { workspace = true }
 warden-redis = { workspace = true }
+warden-rules = { workspace = true }
+warden-observe = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

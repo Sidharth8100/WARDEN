@@ -8,7 +8,9 @@ dependencies = [
     "warden-core",
     "warden-db",
     "warden-net",
+    "warden-observe",
     "warden-redis",
+    "warden-rules",
 ]
 
 [build-system]
@@ -24,3 +26,5 @@ warden-net = { workspace = true }
 warden-compare = { workspace = true }
 warden-db = { workspace = true }
 warden-redis = { workspace = true }
+warden-rules = { workspace = true }
+warden-observe = { workspace = true }

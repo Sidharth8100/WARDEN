@@ -6,6 +6,7 @@ dependencies = [
     "structlog>=26.1.0",
     "warden-core",
     "warden-db",
+    "warden-observe",
     "warden-redis",
 ]
 
@@ -20,3 +21,4 @@ packages = ["src/warden_scheduler"]
 warden-core = { workspace = true }
 warden-db = { workspace = true }
 warden-redis = { workspace = true }
+warden-observe = { workspace = true }

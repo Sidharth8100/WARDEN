@@ -9,13 +9,16 @@ from warden_core.jobs import JobPayload
 from warden_db.models import CrawlJob, Monitor, Outbox, SchedulerFence
 
 
-def stage_check(session: AsyncSession, monitor: Monitor) -> JobPayload:
+def stage_check(
+    session: AsyncSession, monitor: Monitor, *, traceparent: str | None = None
+) -> JobPayload:
     job = JobPayload(
         str(uuid.uuid4()),
         str(monitor.id),
         monitor.url,
         monitor.domain,
         needs_render=monitor.needs_render,
+        traceparent=traceparent,
     )
     session.add(CrawlJob(id=uuid.UUID(job.job_id), monitor_id=monitor.id, status="queued"))
     session.add(

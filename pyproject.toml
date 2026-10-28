@@ -15,6 +15,10 @@ dependencies = [
     "warden-scheduler",
     "warden-fetcher",
     "warden-processor",
+    "warden-rules",
+    "warden-observe",
+    "warden-alerter",
+    "warden-analytics",
 ]
 
 [tool.uv]
@@ -33,6 +37,10 @@ members = [
     "services/fetcher",
     "services/processor",
     "sim/chaos_web",
+    "libs/warden_rules",
+    "libs/warden_observe",
+    "services/alerter",
+    "services/analytics",
 ]
 
 [tool.uv.sources]
@@ -47,6 +55,10 @@ warden-redis = { workspace = true }
 warden-scheduler = { workspace = true }
 warden-fetcher = { workspace = true }
 warden-processor = { workspace = true }
+warden-rules = { workspace = true }
+warden-observe = { workspace = true }
+warden-alerter = { workspace = true }
+warden-analytics = { workspace = true }
 
 [dependency-groups]
 dev = [
@@ -117,6 +129,10 @@ mypy_path = [
     "services/fetcher/src",
     "services/processor/src",
     "sim/chaos_web/src",
+    "libs/warden_rules/src",
+    "libs/warden_observe/src",
+    "services/alerter/src",
+    "services/analytics/src",
 ]
 explicit_package_bases = true
 

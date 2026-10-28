@@ -24,10 +24,16 @@ class JobPayload:
     not_modified: bool = False
     blocked_by_robots: bool = False
     schema_version: int = 1
+    traceparent: str | None = None
 
     def __post_init__(self) -> None:
         UUID(self.job_id)
         UUID(self.monitor_id)
+        if self.traceparent is not None and (
+            not isinstance(self.traceparent, str)
+            or not re.fullmatch(r"00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}", self.traceparent)
+        ):
+            raise ValueError("invalid trace context")
         if self.schema_version != 1 or type(self.attempt) is not int or self.attempt < 0:
             raise ValueError("unsupported payload version or attempt")
         if not isinstance(self.url, str) or not isinstance(self.domain, str):
@@ -75,6 +81,7 @@ class ChangeEventPayload:
     kind: str
     score: float | None
     cursor: str = ""
+    meaningful: bool = True
 
     def encode(self) -> bytes:
         return json.dumps(asdict(self), separators=(",", ":")).encode()
@@ -83,5 +90,5 @@ class ChangeEventPayload:
     def decode(cls, raw: bytes) -> "ChangeEventPayload":
         return cls(**json.loads(raw))
 
-    def as_dict(self) -> dict[str, str | float | None]:
-        return cast(dict[str, str | float | None], asdict(self))
+    def as_dict(self) -> dict[str, str | float | bool | None]:
+        return cast(dict[str, str | float | bool | None], asdict(self))
