@@ -33,6 +33,16 @@ from warden_db.base import Base
 EXPECTED_TABLES = frozenset(
     {
         "audit_log",
+        "alert_endpoints",
+        "deliveries",
+        "delivery_attempts",
+        "learning_examples",
+        "model_aliases",
+        "model_versions",
+        "rule_evaluations",
+        "rule_revisions",
+        "rule_states",
+        "shadow_scores",
         "change_events",
         "crawl_jobs",
         "scheduler_fences",
@@ -54,8 +64,8 @@ EXPECTED_TABLES = frozenset(
 class TestModelRegistry:
     """Verify the ORM metadata contains the exact expected tables."""
 
-    def test_exactly_fifteen_tables(self) -> None:
-        """Exactly 15 tables: 13 earlier plus job ledger and scheduler fence."""
+    def test_exact_model_table_inventory(self) -> None:
+        """Exact inventory including rules, delivery and versioned learning records."""
         actual = frozenset(Base.metadata.tables.keys())
         assert actual == EXPECTED_TABLES, (
             f"Table mismatch.\n"

@@ -38,6 +38,16 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from warden_db.base import Base
+from warden_db.extensions import AlertEndpoint as AlertEndpoint
+from warden_db.extensions import Delivery as Delivery
+from warden_db.extensions import DeliveryAttempt as DeliveryAttempt
+from warden_db.extensions import LearningExample as LearningExample
+from warden_db.extensions import ModelAlias as ModelAlias
+from warden_db.extensions import ModelVersion as ModelVersion
+from warden_db.extensions import RuleEvaluation as RuleEvaluation
+from warden_db.extensions import RuleRevision as RuleRevision
+from warden_db.extensions import RuleState as RuleState
+from warden_db.extensions import ShadowScore as ShadowScore
 
 # ---------------------------------------------------------------------------
 # plans
@@ -502,6 +512,10 @@ class CrawlJob(Base):
     __table_args__ = (
         CheckConstraint("status IN ('queued', 'completed', 'failed')", name="status_valid"),
         Index("ix_crawl_jobs_monitor_completed", "monitor_id", "completed_at"),
+        Index(
+            "ix_crawl_jobs_created_slo", "created_at", postgresql_include=["status", "completed_at"]
+        ),
+        Index("ix_crawl_jobs_queued_age", "created_at", postgresql_where=text("status = 'queued'")),
     )
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
     monitor_id: Mapped[uuid.UUID] = mapped_column(

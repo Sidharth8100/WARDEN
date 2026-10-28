@@ -16,6 +16,7 @@ Usage (FastAPI lifespan):
 """
 
 import urllib.parse
+import uuid
 
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -23,6 +24,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.pool import NullPool
 
 
 def _normalize_db_url(url: str) -> str:
@@ -44,7 +46,7 @@ def _normalize_db_url(url: str) -> str:
     return url
 
 
-def make_engine(url: str) -> AsyncEngine:
+def make_engine(url: str, *, transaction_pool: bool = False) -> AsyncEngine:
     """Create an async SQLAlchemy engine with production-grade pool settings.
 
     WHY asyncpg?  It is a native, pure-asyncio Postgres driver that does not
@@ -63,6 +65,21 @@ def make_engine(url: str) -> AsyncEngine:
     url = _normalize_db_url(url)
     if not url.startswith("postgresql+asyncpg://"):
         raise ValueError("Database URL must use postgresql+asyncpg:// scheme")
+
+    if transaction_pool:
+        # Requires PgBouncer >=1.21 with max_prepared_statements > 0: SQLAlchemy
+        # calls prepare() even with its cache disabled. LISTEN and migrations
+        # deliberately use the default direct/session engine instead.
+        return create_async_engine(
+            url,
+            poolclass=NullPool,
+            pool_pre_ping=True,
+            connect_args={
+                "prepared_statement_cache_size": 0,
+                "statement_cache_size": 0,
+                "prepared_statement_name_func": lambda: "__warden_" + uuid.uuid4().hex,
+            },
+        )
 
     return create_async_engine(
         url,
