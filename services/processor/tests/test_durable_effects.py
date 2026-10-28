@@ -16,6 +16,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from redis.asyncio import Redis
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -24,7 +25,7 @@ from warden_db.dispatch import fence, stage_check
 from warden_db.models import ChangeEvent, CrawlJob, Monitor, Outbox, SchedulerFence, Snapshot, User
 from warden_db.proof_ledger import query as query_proof_ledger
 from warden_db.session import make_engine, make_sessionmaker
-from warden_net.objectstore import ObjectStoreConfig
+from warden_net.objectstore import BlobNotFoundError, ObjectStoreConfig
 from warden_processor.main import Processor
 
 pytestmark = pytest.mark.integration
@@ -103,6 +104,7 @@ async def sessions(tmp_path: Path) -> AsyncIterator[async_sessionmaker[AsyncSess
         if server.returncode is None:
             server.terminate()
         await server.wait()
+        await asyncio.to_thread(shutil.rmtree, data)
 
 
 async def seed(sessions: async_sessionmaker[AsyncSession]) -> tuple[JobPayload, ObjectStoreConfig]:
@@ -205,6 +207,51 @@ async def test_fencing_rejects_stale_term_globally(
     async with sessions() as session:
         row = await session.get(SchedulerFence, "scheduler")
         assert row is not None and row.token == 11
+
+
+async def test_missing_blob_is_quarantined_without_blocking_later_jobs(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    job, store = await seed(sessions)
+    processor = Processor(sessions, store)
+    redis = AsyncMock(spec=Redis)
+    redis.xadd = AsyncMock()
+    missing = replace(job, content_hash="a" * 64)
+    with patch("warden_processor.main.get_blob", side_effect=BlobNotFoundError("missing")):
+        await processor.handle(missing, redis)
+        await processor.handle(missing, redis)  # terminal receipt makes redelivery harmless
+    redis.xadd.assert_awaited_once()
+    async with sessions() as session:
+        record = await session.get(CrawlJob, uuid.UUID(job.job_id))
+        assert record is not None and record.status == "failed"
+        assert record.error == "missing_snapshot_blob" and record.snapshot_id is None
+        assert await session.scalar(select(func.count()).select_from(Snapshot)) == 0
+    later, _ = await seed(sessions)
+    body = b"<html><body><p>Unrelated valid work</p></body></html>"
+    with patch("warden_processor.main.get_blob", return_value=body):
+        await processor.handle(replace(later, content_hash=hashlib.sha256(body).hexdigest()), redis)
+    async with sessions() as session:
+        record = await session.get(CrawlJob, uuid.UUID(later.job_id))
+        assert record is not None and record.status == "completed"
+        assert await session.scalar(select(func.count()).select_from(Snapshot)) == 1
+
+
+async def test_transient_object_failure_stays_pending_without_dead_letter(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    job, store = await seed(sessions)
+    processor = Processor(sessions, store)
+    redis = AsyncMock(spec=Redis)
+    redis.xadd = AsyncMock()
+    with (
+        patch("warden_processor.main.get_blob", side_effect=TimeoutError),
+        pytest.raises(TimeoutError),
+    ):
+        await processor.handle(replace(job, content_hash="a" * 64), redis)
+    redis.xadd.assert_not_awaited()
+    async with sessions() as session:
+        record = await session.get(CrawlJob, uuid.UUID(job.job_id))
+        assert record is not None and record.status == "queued" and record.error is None
 
 
 async def test_operator_ledger_scopes_batches_and_audits_all_durable_effects(

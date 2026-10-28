@@ -4,8 +4,10 @@ import hashlib
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from botocore.exceptions import ClientError
 
 from warden_net.objectstore import (
+    BlobNotFoundError,
     ObjectStoreConfig,
     blob_exists,
     compute_blob_key,
@@ -83,3 +85,33 @@ async def test_get_blob_rejects_oversized_chunked_body_and_closes_it(
     ):
         await get_blob(store_config, "test", max_bytes=5)
     body.__aexit__.assert_awaited_once()
+
+
+@pytest.mark.parametrize("code", ["404", "NoSuchKey", "NotFound"])
+async def test_get_blob_classifies_only_explicit_missing_keys(
+    store_config: ObjectStoreConfig, code: str
+) -> None:
+    client = AsyncMock()
+    client.__aenter__.return_value = client
+    client.get_object.side_effect = ClientError({"Error": {"Code": code}}, "GetObject")
+    with (
+        patch("aioboto3.Session.client", return_value=client),
+        pytest.raises(BlobNotFoundError, match="snapshot_object_missing"),
+    ):
+        await get_blob(store_config, "test")
+
+
+@pytest.mark.parametrize("code", ["AccessDenied", "InternalError", "NoSuchBucket"])
+async def test_get_blob_preserves_auth_transient_and_bucket_failures(
+    store_config: ObjectStoreConfig, code: str
+) -> None:
+    client = AsyncMock()
+    client.__aenter__.return_value = client
+    original = ClientError({"Error": {"Code": code}}, "GetObject")
+    client.get_object.side_effect = original
+    with (
+        patch("aioboto3.Session.client", return_value=client),
+        pytest.raises(ClientError) as caught,
+    ):
+        await get_blob(store_config, "test")
+    assert caught.value is original

@@ -13,6 +13,10 @@ from botocore.config import Config  # type: ignore[import-untyped]
 from botocore.exceptions import ClientError  # type: ignore[import-untyped]
 
 
+class BlobNotFoundError(ValueError):
+    """The store explicitly reports a missing object, not a network/auth failure."""
+
+
 @dataclass(frozen=True)
 class ObjectStoreConfig:
     """Configuration for connecting to an S3-compatible object store."""
@@ -79,10 +83,15 @@ async def get_blob(
         aws_secret_access_key=client_config.secret_key,
         config=s3_cfg,
     ) as s3:
-        response = await s3.get_object(
-            Bucket=client_config.bucket,
-            Key=key,
-        )
+        try:
+            response = await s3.get_object(
+                Bucket=client_config.bucket,
+                Key=key,
+            )
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
+                raise BlobNotFoundError("snapshot_object_missing") from None
+            raise
         body = response["Body"]
         chunks: list[bytes] = []
         total = 0

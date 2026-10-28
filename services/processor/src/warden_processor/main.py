@@ -6,10 +6,15 @@ import json
 import os
 import uuid
 from datetime import UTC, datetime
+from decimal import Decimal
 
 import structlog
+from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from warden_observe.telemetry import configure, span
+from warden_rules.context import build_context, serialize
+from warden_rules.evaluator import Value
 
 from warden_compare.classify import (
     CLASSIFIER_VERSION,
@@ -17,12 +22,15 @@ from warden_compare.classify import (
     extract_features,
     load_classifier_config,
 )
+from warden_compare.extract import extract_price
 from warden_compare.normalize import normalize
 from warden_core.bloomfilter import BloomFilter
 from warden_core.jobs import ChangeEventPayload, JobPayload
+from warden_db.learning import score_observation
 from warden_db.models import ChangeEvent, CrawlJob, Monitor, Outbox, Snapshot
 from warden_db.session import make_engine, make_sessionmaker
-from warden_net.objectstore import ObjectStoreConfig, get_blob
+from warden_net.objectstore import BlobNotFoundError, ObjectStoreConfig, get_blob
+from warden_processor.rules import evaluate_event
 from warden_redis.client import connect
 from warden_redis.eventlog import STREAM, append_event
 from warden_redis.queue import GROUP, claim_jobs, reclaim_stale
@@ -33,13 +41,21 @@ _log = structlog.get_logger(__name__)
 
 class Processor:
     def __init__(
-        self, sessions: async_sessionmaker[AsyncSession], store: ObjectStoreConfig
+        self,
+        sessions: async_sessionmaker[AsyncSession],
+        store: ObjectStoreConfig,
+        redis: Redis | None = None,
     ) -> None:
         self.sessions = sessions
         self.store = store
+        self.redis = redis
         self._seen = BloomFilter(100_000, 0.01)
 
     async def process(self, job: JobPayload) -> None:
+        with span("processor.compare_and_commit", job.traceparent):
+            await self._process(job)
+
+    async def _process(self, job: JobPayload) -> None:
         """Serialize monitor history and receipt; reject forged/mismatched job references.
 
         Duplicate deliveries return without effects, including a crash after commit
@@ -85,6 +101,7 @@ class Processor:
                 key in self._seen and previous is not None and previous.content_hash == digest
             )
             classification = None
+            rule_context: dict[str, Value] | None = None
             if previous is not None and not unchanged:
                 old_body = await get_blob(self.store, previous.blob_ref or "")
                 if old_body != body:
@@ -104,6 +121,18 @@ class Processor:
                     weights, threshold = load_classifier_config()
                     classification = classify(features, weights, threshold)
                     record.changed = old.text != new.text
+                    configuration = monitor.selector_config or {}
+                    currency = configuration.get("price_currency")
+                    rule_context = build_context(
+                        kind="structural",
+                        score=classification.score,
+                        meaningful=classification.meaningful,
+                        before=old.text,
+                        after=new.text,
+                        previous_price=extract_price(old, configuration),
+                        current_price=extract_price(new, configuration),
+                        currency=currency if isinstance(currency, str) else None,
+                    )
             snapshot = Snapshot(
                 monitor_id=monitor.id,
                 fetched_at=now,
@@ -118,7 +147,7 @@ class Processor:
             session.add(snapshot)
             await session.flush()
             record.snapshot_id = snapshot.id
-            if classification and classification.meaningful and previous is not None:
+            if classification and previous is not None and rule_context is not None:
                 event = ChangeEvent(
                     monitor_id=monitor.id,
                     from_snapshot_id=previous.id,
@@ -126,13 +155,25 @@ class Processor:
                     detected_at=now,
                     kind="structural",
                     score=classification.score,
-                    meaningful=True,
-                    features=classification.features,
+                    meaningful=classification.meaningful,
+                    features={
+                        **classification.features,
+                        "static_prediction": classification.meaningful,
+                    },
+                    extracted=serialize(rule_context),
                     classifier_version=CLASSIFIER_VERSION,
                 )
                 session.add(event)
                 await session.flush()
                 record.event_id = event.id
+                await score_observation(session, event, monitor.user_id)
+                rule_context["event.meaningful"] = event.meaningful
+                rule_context["event.score"] = (
+                    Decimal(str(event.score)) if event.score is not None else None
+                )
+                event.extracted = serialize(rule_context)
+                if event.meaningful and monitor.rule_src and self.redis is not None:
+                    await evaluate_event(session, self.redis, monitor, event, rule_context)
                 payload = ChangeEventPayload(
                     str(event.id),
                     str(monitor.id),
@@ -140,6 +181,7 @@ class Processor:
                     now.isoformat(),
                     event.kind,
                     event.score,
+                    meaningful=event.meaningful,
                 )
                 session.add(
                     Outbox(
@@ -149,6 +191,29 @@ class Processor:
                     )
                 )
             self._seen.add(key)
+
+    async def handle(self, job: JobPayload, redis: Redis) -> None:
+        """Quarantine permanently invalid results; leave transient failures pending."""
+        try:
+            await self.process(job)
+        except ValueError as exc:
+            async with self.sessions() as session, session.begin():
+                record = await session.get(CrawlJob, uuid.UUID(job.job_id), with_for_update=True)
+                if (
+                    record
+                    and str(record.monitor_id) == job.monitor_id
+                    and record.status == "queued"
+                ):
+                    record.status = "failed"
+                    record.error = (
+                        "missing_snapshot_blob"
+                        if isinstance(exc, BlobNotFoundError)
+                        else "invalid_result"
+                    )
+                    record.completed_at = datetime.now(UTC)
+            await redis.xadd(
+                "warden:dead:processor", {"payload": job.encode(), "reason": type(exc).__name__}
+            )
 
 
 async def publish_pending(sessions: async_sessionmaker[AsyncSession], config: WorkerConfig) -> int:
@@ -175,6 +240,7 @@ async def publish_pending(sessions: async_sessionmaker[AsyncSession], config: Wo
 
 
 async def run() -> None:
+    configure("warden-processor")
     config = WorkerConfig.from_environment()
     redis = connect(config.redis_url, "processor")
     engine = make_engine(os.environ["WARDEN_DATABASE_URL"])
@@ -188,25 +254,11 @@ async def run() -> None:
             config.objectstore_secret_key,
             config.objectstore_bucket,
         ),
+        redis,
     )
 
     async def process(job: JobPayload) -> None:
-        try:
-            await processor.process(job)
-        except ValueError as exc:
-            async with sessions() as session, session.begin():
-                record = await session.get(CrawlJob, uuid.UUID(job.job_id), with_for_update=True)
-                if (
-                    record
-                    and str(record.monitor_id) == job.monitor_id
-                    and record.status == "queued"
-                ):
-                    record.status = "failed"
-                    record.error = "invalid_result"
-                    record.completed_at = datetime.now(UTC)
-            await redis.xadd(
-                "warden:dead:processor", {"payload": job.encode(), "reason": type(exc).__name__}
-            )
+        await processor.handle(job, redis)
 
     try:
         while not stop.is_set():
