@@ -137,6 +137,7 @@ async def events(websocket: WebSocket) -> None:
                     cursor = event.cursor
                     if (
                         event.user_id == user_id
+                        and event.meaningful
                         and event.monitor_id in allowed
                         and event.event_id not in seen
                     ):

@@ -3,11 +3,13 @@ import sys
 
 import structlog
 from structlog.typing import Processor
+from warden_observe.telemetry import log_correlation
 
 
 def configure_logging(level: str = "INFO", *, json_logs: bool = True) -> None:
     shared: list[Processor] = [
         structlog.contextvars.merge_contextvars,
+        log_correlation,
         structlog.stdlib.add_logger_name,
         structlog.stdlib.add_log_level,
         structlog.processors.TimeStamper(fmt="iso", utc=True),

@@ -3,6 +3,7 @@
 import base64
 import hashlib
 import json
+import os
 import uuid
 from datetime import UTC, datetime
 from typing import Annotated, Any
@@ -14,6 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from warden_observe.telemetry import carrier
 
 from warden_api.auth.audit import log_audit_event
 from warden_api.auth.dependencies import get_current_user
@@ -266,6 +268,12 @@ async def create_monitor(
     # 4. Selector Configuration Validation
     # --------------------------------------------------------------------------
     validate_selector_config(body.selector_config)
+    if body.rule_src is not None:
+        raise APIError(
+            422,
+            "Invalid rule update",
+            "Use PUT /api/monitors/{id}/rule to activate a validated revision",
+        )
 
     # --------------------------------------------------------------------------
     # 5. Tag Associations
@@ -485,6 +493,10 @@ async def update_monitor(
     if_match: Annotated[str | None, Header(alias="If-Match")] = None,
 ) -> MonitorResponse:
     """Update monitor fields using optimistic concurrency with If-Match version matching."""
+    if "rule_src" in body.model_fields_set:
+        raise APIError(
+            422, "Invalid rule update", "Use PUT /api/monitors/{id}/rule for versioned rule changes"
+        )
     if not if_match:
         raise APIError(
             status_code=400,
@@ -767,7 +779,7 @@ async def check_monitor(
     session: Annotated[AsyncSession, Depends(get_db)],
     user: Annotated[User, Depends(get_current_user)],
 ) -> dict[str, str]:
-    """Commit the accepted-job ledger/outbox before attempting an immediate enqueue.
+    """Commit the accepted-job ledger/outbox; scheduler dispatch is the default.
 
     Redis outage still returns 202 for a durably accepted job: scheduler's outbox
     relay retries the handoff. Immediate and relay publishes share a stable job ID.
@@ -779,12 +791,13 @@ async def check_monitor(
     )
     if monitor is None:
         raise APIError(status_code=404, title="Not Found", detail="Active monitor not found")
-    job = stage_check(session, monitor)
+    job = stage_check(session, monitor, traceparent=carrier())
     await session.commit()
-    try:
-        await enqueue_job(request.app.state.redis, "warden:jobs:ingress", job)
-    except Exception as exc:
-        _log.warning(
-            "accepted_check_awaiting_dispatch", job_id=job.job_id, category=type(exc).__name__
-        )
+    if os.environ.get("WARDEN_IMMEDIATE_ENQUEUE", "0") == "1":
+        try:
+            await enqueue_job(request.app.state.redis, "warden:jobs:ingress", job)
+        except Exception as exc:
+            _log.warning(
+                "accepted_check_awaiting_dispatch", job_id=job.job_id, category=type(exc).__name__
+            )
     return {"monitor_id": str(monitor_id), "job_id": job.job_id, "status": "queued"}

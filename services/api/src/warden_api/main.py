@@ -43,12 +43,18 @@ DEPENDENCY GRAPH DURING A REQUEST:
   HTTP Response sent
 """
 
+import asyncio
+import contextlib
+import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 import httpx
 import structlog
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from warden_observe.telemetry import configure
+from warden_rules.language import RuleError
 
 from warden_api.auth import router as auth_router
 from warden_api.errors import register_error_handlers
@@ -56,6 +62,8 @@ from warden_api.health import router as health_router
 from warden_api.logconfig import configure_logging
 from warden_api.middleware import RequestIDMiddleware
 from warden_api.monitors import router as monitors_router
+from warden_api.observability import install, sampler
+from warden_api.rules.router import router as rules_router
 from warden_api.settings import Settings, get_settings
 from warden_api.websocket import router as websocket_router
 from warden_redis.client import connect
@@ -74,6 +82,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
       - Route handlers access them via request.app.state
       - Tests can inject fake resources by setting app.state directly
     """
+    configure("warden-api")
     settings: Settings = app.state.settings
 
     # ------------------------------------------------------------------
@@ -121,7 +130,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         )
 
     # Everything is set up - hand control to FastAPI to serve requests.
+    sampling = (
+        asyncio.create_task(sampler(app.state.sessionmaker))
+        if os.environ.get("WARDEN_SLO_SAMPLER") == "1"
+        else None
+    )
     yield
+    if sampling:
+        sampling.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await sampling
 
     # ------------------------------------------------------------------
     # SHUTDOWN (runs in reverse order - last created, first closed)
@@ -182,6 +200,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
 
+    install(app)
+
     # Store settings on app.state so lifespan and middleware can access it
     # without calling get_settings() again (which would re-read env vars).
     app.state.settings = resolved_settings
@@ -195,6 +215,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # ---- Error Handlers (RFC 7807) ---------------------------------------
     register_error_handlers(app)
 
+    async def rule_error(request: Request, error: Exception) -> JSONResponse:
+        if not isinstance(error, RuleError):
+            raise error
+        return JSONResponse(
+            status_code=422,
+            content={
+                "type": "about:blank",
+                "title": "Invalid rule",
+                "status": 422,
+                "detail": str(error),
+                "errors": [error.as_dict()],
+            },
+            headers={"Content-Type": "application/problem+json"},
+        )
+
+    app.add_exception_handler(RuleError, rule_error)
+
     # ---- Routers ---------------------------------------------------------
     # Include the health endpoints. No prefix means:
     #   /live  -> GET /live
@@ -204,5 +241,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth_router)
     app.include_router(monitors_router)
     app.include_router(websocket_router)
+    app.include_router(rules_router)
 
     return app
