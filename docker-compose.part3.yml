@@ -1,0 +1,39 @@
+# Opt-in until human-owned roles and driver approval exist. No new network.
+# Use with the base AND the route-checked local override; see PART23_SETUP.md.
+services:
+  postgres-replica:
+    profiles: [part3-database]
+    image: postgres:16
+    user: postgres
+    env_file: [.runtime/part3-replica.env]
+    entrypoint: [sh, /opt/warden/replica-entrypoint.sh]
+    volumes:
+      - replicadata:/var/lib/postgresql/data
+      - ./ops/postgres/replica-entrypoint.sh:/opt/warden/replica-entrypoint.sh:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  pgbouncer:
+    profiles: [part3-database]
+    image: edoburu/pgbouncer:v1.25.2-p0
+    env_file: [.runtime/part3-pooler.env]
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      LISTEN_PORT: "6432"
+      AUTH_TYPE: scram-sha-256
+      POOL_MODE: transaction
+      DEFAULT_POOL_SIZE: "20"
+      MAX_CLIENT_CONN: "200"
+      MAX_PREPARED_STATEMENTS: "200"
+      SERVER_RESET_QUERY: DISCARD ALL
+      SERVER_RESET_QUERY_ALWAYS: "1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  replicadata: {}

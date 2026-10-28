@@ -1,0 +1,189 @@
+{
+  "uid": "warden-pipeline",
+  "title": "WARDEN pipeline and error budget",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Operations / second",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "warden-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(service,outcome) (rate(warden_operations_total[5m]))",
+          "legendFormat": "{{service}} {{outcome}} {{window}} {{instance}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Operation duration p95",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "warden-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95,sum by(service,le)(rate(warden_operation_seconds_bucket[5m])))",
+          "legendFormat": "{{service}} {{outcome}} {{window}} {{instance}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Durable crawl backlog",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "warden-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "warden_crawl_queued",
+          "legendFormat": "{{service}} {{outcome}} {{window}} {{instance}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Oldest queued crawl (seconds)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "warden-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "warden_crawl_oldest_queued_seconds",
+          "legendFormat": "{{service}} {{outcome}} {{window}} {{instance}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Crawl SLO burn rate (99% objective)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "warden-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "warden_crawl_slo_bad_ratio / 0.01",
+          "legendFormat": "{{service}} {{outcome}} {{window}} {{instance}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Eligible SLO population",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "warden-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "warden_crawl_slo_population",
+          "legendFormat": "{{service}} {{outcome}} {{window}} {{instance}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Scrape health",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "warden-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up{job=~\"warden.*\"}",
+          "legendFormat": "{{service}} {{outcome}} {{window}} {{instance}}"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "SLO data age (seconds)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "warden-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "time()-warden_slo_sample_timestamp_seconds",
+          "legendFormat": "{{service}} {{outcome}} {{window}} {{instance}}"
+        }
+      ]
+    }
+  ]
+}

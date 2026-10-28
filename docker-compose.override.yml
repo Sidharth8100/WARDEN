@@ -26,6 +26,16 @@
 
 name: warden
 
+# Local-only choice checked against all host routes on 28 October 2026.
+# Reinspect routes and Docker networks BEFORE creating this network on any host.
+# The daemon has bip=10.200.0.1/24 but no safe default-address-pools policy;
+# allowing implicit allocation here would recreate the forbidden 172.17 subnet.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 10.200.1.0/24
+
 services:
   # Local JWT keys remain owner-only and bind-mounted read-only. Match the
   # developer's non-root UID instead of copying keys into images or chmodding

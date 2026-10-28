@@ -8,6 +8,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 
 import structlog
+from warden_observe.telemetry import carrier, configure, span
 
 from warden_core.circuitbreaker import CircuitBreaker
 from warden_core.jobs import JobPayload
@@ -36,6 +37,7 @@ def assert_no_database_access() -> None:
 
 
 async def run() -> None:
+    configure("warden-fetcher")
     assert_no_database_access()
     config = WorkerConfig.from_environment()
     member = component(config.instance_id)
@@ -53,6 +55,10 @@ async def run() -> None:
         _log.warning("fetcher_explicit_test_allowlist", hosts=sorted(allowlist))
 
     async def fetch_job(job: JobPayload) -> None:
+        with span("fetcher.fetch", job.traceparent):
+            await fetch_inner(job)
+
+    async def fetch_inner(job: JobPayload) -> None:
         retry_key = f"warden:retry:fetch:{member}"
         if not breaker.allow(job.domain, time.monotonic()):
             await schedule_retry(redis, retry_key, job, delay_s=15, attempt=job.attempt)
@@ -92,7 +98,7 @@ async def run() -> None:
                 blocked_by_robots=result.blocked_by_robots,
                 fetched_at=datetime.now(UTC).isoformat(),
             )
-        await enqueue_job(redis, "warden:results", outcome)
+        await enqueue_job(redis, "warden:results", replace(outcome, traceparent=carrier()))
 
     async def membership_loop() -> None:
         while not stop.is_set():

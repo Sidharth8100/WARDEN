@@ -5,6 +5,7 @@ import json
 import os
 import time
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from itertools import pairwise
 
@@ -12,6 +13,7 @@ import structlog
 from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from warden_observe.telemetry import carrier, configure, span
 
 from warden_core.budget import (
     MonitorBudgetInput,
@@ -132,7 +134,7 @@ class Scheduler:
                 if not monitor or monitor.state != "active":
                     continue
                 if monitor.next_due_at <= datetime.now(UTC):
-                    stage_check(session, monitor)
+                    stage_check(session, monitor, traceparent=carrier())
                     interval = self.intervals.get(identity, monitor.min_interval_s)
                     monitor.next_due_at = datetime.now(UTC) + timedelta(seconds=interval)
                 self.schedule(identity, monitor.next_due_at)
@@ -176,7 +178,10 @@ class Scheduler:
             for row in rows:
                 job = JobPayload.decode(json.dumps(row.payload).encode())
                 member = self.ring.get_member(job.domain) if members else "ingress"
-                await enqueue_job(self.redis, f"warden:jobs:{member}", job)
+                with span("scheduler.dispatch", job.traceparent):
+                    await enqueue_job(
+                        self.redis, f"warden:jobs:{member}", replace(job, traceparent=carrier())
+                    )
                 if members:
                     self.ring.report_load(member, 1)
                     self.loads[member] += 1
@@ -185,6 +190,7 @@ class Scheduler:
 
 
 async def run() -> None:
+    configure("warden-scheduler")
     redis = connect(os.environ["WARDEN_REDIS_URL"], "scheduler")
     engine = make_engine(os.environ["WARDEN_DATABASE_URL"])
     sessions = make_sessionmaker(engine)

@@ -1,0 +1,46 @@
+groups:
+  - name: warden-slo
+    rules:
+      - alert: CrawlErrorBudgetFastBurn
+        expr: |
+          (warden_crawl_slo_bad_ratio{window="5m"} / 0.01 > 14.4)
+          and ignoring(window)
+          (warden_crawl_slo_bad_ratio{window="1h"} / 0.01 > 14.4)
+          and ignoring(window)
+          (warden_crawl_slo_population{window="5m"} >= 5)
+          and on(job, instance)
+          (time() - warden_slo_sample_timestamp_seconds < 30)
+        for: 15s
+        labels:
+          severity: page
+        annotations:
+          summary: "Crawl completion is consuming the 99% SLO budget rapidly"
+          description: "5m and 1h burn rates exceed 14.4x; inspect durable queue age and worker traces."
+      - alert: CrawlErrorBudgetSlowBurn
+        expr: |
+          (warden_crawl_slo_bad_ratio{window="30m"} / 0.01 > 6)
+          and ignoring(window)
+          (warden_crawl_slo_bad_ratio{window="6h"} / 0.01 > 6)
+          and ignoring(window)
+          (warden_crawl_slo_population{window="30m"} >= 5)
+          and on(job, instance)
+          (time() - warden_slo_sample_timestamp_seconds < 30)
+        for: 5m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "Crawl completion has a sustained error-budget burn"
+      - alert: SLOSamplerStale
+        expr: time() - warden_slo_sample_timestamp_seconds > 30
+        for: 15s
+        labels:
+          severity: page
+        annotations:
+          summary: "Durable crawl SLO sampling stopped; burn-rate data is stale"
+      - alert: WorkerUnavailable
+        expr: up{job="warden-workers"} == 0
+        for: 30s
+        labels:
+          severity: ticket
+        annotations:
+          summary: "A worker metrics endpoint is unavailable"

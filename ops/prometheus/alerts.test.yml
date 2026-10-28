@@ -1,0 +1,56 @@
+rule_files: [alerts.yml]
+evaluation_interval: 5s
+tests:
+  - name: both-windows-fast-burn
+    interval: 5s
+    input_series:
+      - series: 'warden_crawl_slo_bad_ratio{window="5m",job="warden-api",instance="api:8000"}'
+        values: '0.2+0x20'
+      - series: 'warden_crawl_slo_bad_ratio{window="1h",job="warden-api",instance="api:8000"}'
+        values: '0.2+0x20'
+      - series: 'warden_crawl_slo_population{window="5m",job="warden-api",instance="api:8000"}'
+        values: '10+0x20'
+      - series: 'warden_slo_sample_timestamp_seconds{job="warden-api",instance="api:8000"}'
+        values: '0+5x20'
+    alert_rule_test:
+      - eval_time: 30s
+        alertname: CrawlErrorBudgetFastBurn
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              window: 5m
+              job: warden-api
+              instance: api:8000
+            exp_annotations:
+              summary: 'Crawl completion is consuming the 99% SLO budget rapidly'
+              description: '5m and 1h burn rates exceed 14.4x; inspect durable queue age and worker traces.'
+  - name: short-window-alone-cannot-page
+    interval: 5s
+    input_series:
+      - series: 'warden_crawl_slo_bad_ratio{window="5m",job="warden-api",instance="api:8000"}'
+        values: '0.5+0x20'
+      - series: 'warden_crawl_slo_bad_ratio{window="1h",job="warden-api",instance="api:8000"}'
+        values: '0.01+0x20'
+      - series: 'warden_crawl_slo_population{window="5m",job="warden-api",instance="api:8000"}'
+        values: '10+0x20'
+      - series: 'warden_slo_sample_timestamp_seconds{job="warden-api",instance="api:8000"}'
+        values: '0+5x20'
+    alert_rule_test:
+      - eval_time: 30s
+        alertname: CrawlErrorBudgetFastBurn
+        exp_alerts: []
+  - name: stale-data-must-not-look-healthy
+    interval: 5s
+    input_series:
+      - series: 'warden_slo_sample_timestamp_seconds{job="warden-api",instance="api:8000"}'
+        values: '0+0x20'
+    alert_rule_test:
+      - eval_time: 60s
+        alertname: SLOSamplerStale
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              job: warden-api
+              instance: api:8000
+            exp_annotations:
+              summary: 'Durable crawl SLO sampling stopped; burn-rate data is stale'
