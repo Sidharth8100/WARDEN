@@ -1,0 +1,9 @@
+{
+  "scope": "real existing Docker Mailpit via SMTP; private PostgreSQL delivery ledger",
+  "delivery_id": "73dd4601-9c74-5f64-b644-235e8ed99f6a",
+  "message_id_matches": true,
+  "mailpit_matches": 1,
+  "status": "delivered",
+  "attempts": 1,
+  "external_email_sent": false
+}

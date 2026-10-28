@@ -1,0 +1,11 @@
+{
+  "event_id": 1,
+  "delivery_id": "465c912a-b426-501d-ad60-4b530421a181",
+  "relay_sigkill_after_receiver_commit": true,
+  "attempts": 2,
+  "receiver_effects": 1,
+  "database": "real private PostgreSQL",
+  "signatures_verified": true,
+  "transport": "injected pinned transport; real SSRF guard with fixture public DNS",
+  "public_dns_tls_wire_proof": false
+}

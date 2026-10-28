@@ -1,0 +1,66 @@
+{
+  "dataset": "chaos-web price archetype; independent seeded page IDs",
+  "label_policy": "synthetic tenant utility: price decrease only; increases are noise",
+  "human_labels": false,
+  "train_seed": 4721,
+  "test_seed": 9137,
+  "training_examples": 1200,
+  "heldout_examples": 600,
+  "heldout_positive": 93,
+  "static_v2": {
+    "f1": 0.6714801444043321,
+    "precision": 0.5054347826086957,
+    "recall": 1.0
+  },
+  "points": [
+    {
+      "labels": 0,
+      "f1": 0.6714801444043321,
+      "precision": 0.5054347826086957,
+      "recall": 1.0
+    },
+    {
+      "labels": 25,
+      "f1": 0.6714801444043321,
+      "precision": 0.5054347826086957,
+      "recall": 1.0
+    },
+    {
+      "labels": 50,
+      "f1": 1.0,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "labels": 100,
+      "f1": 1.0,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "labels": 200,
+      "f1": 1.0,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "labels": 400,
+      "f1": 1.0,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "labels": 800,
+      "f1": 1.0,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "labels": 1200,
+      "f1": 1.0,
+      "precision": 1.0,
+      "recall": 1.0
+    }
+  ],
+  "note": "No held-out updates or hyperparameter search; this is personalization, not generalization proof on real sites."
+}

@@ -1,0 +1,10 @@
+{
+  "programs": 60000,
+  "seed": 4721,
+  "accepted": 45745,
+  "rejected": 14255,
+  "generated_valid_accepted": 45000,
+  "unexpected_exceptions": 0,
+  "hangs": 0,
+  "elapsed_s": 17.914887210004963
+}

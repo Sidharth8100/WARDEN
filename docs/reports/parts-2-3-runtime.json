@@ -1,0 +1,182 @@
+{
+  "captured_at_utc": "2026-10-27T22:36:28.320025+00:00",
+  "source_parts_2_3_deployed": false,
+  "live_alembic_revision": "e021a1000001",
+  "source_alembic_revision": "e023a1000002",
+  "services": [
+    {
+      "Service": "alertmanager",
+      "State": "exited",
+      "Health": "",
+      "Image": "prom/alertmanager:v0.34.1"
+    },
+    {
+      "Service": "api",
+      "State": "running",
+      "Health": "healthy",
+      "Image": "warden-api"
+    },
+    {
+      "Service": "api2",
+      "State": "running",
+      "Health": "healthy",
+      "Image": "warden-api2"
+    },
+    {
+      "Service": "chaos-web",
+      "State": "running",
+      "Health": "healthy",
+      "Image": "warden-chaos-web"
+    },
+    {
+      "Service": "chrome",
+      "State": "running",
+      "Health": "",
+      "Image": "selenium/node-chrome:4.25.0"
+    },
+    {
+      "Service": "fetcher",
+      "State": "running",
+      "Health": "",
+      "Image": "warden-fetcher"
+    },
+    {
+      "Service": "jaeger",
+      "State": "exited",
+      "Health": "",
+      "Image": "cr.jaegertracing.io/jaegertracing/jaeger:2.22.0"
+    },
+    {
+      "Service": "mailpit",
+      "State": "running",
+      "Health": "healthy",
+      "Image": "axllent/mailpit"
+    },
+    {
+      "Service": "migrate",
+      "State": "exited",
+      "Health": "",
+      "Image": "warden-migrate"
+    },
+    {
+      "Service": "objectstore",
+      "State": "running",
+      "Health": "",
+      "Image": "chrislusf/seaweedfs"
+    },
+    {
+      "Service": "objectstore-bootstrap",
+      "State": "exited",
+      "Health": "",
+      "Image": "warden-objectstore-bootstrap"
+    },
+    {
+      "Service": "postgres",
+      "State": "running",
+      "Health": "healthy",
+      "Image": "postgres:16"
+    },
+    {
+      "Service": "processor",
+      "State": "running",
+      "Health": "",
+      "Image": "warden-processor"
+    },
+    {
+      "Service": "prometheus",
+      "State": "exited",
+      "Health": "",
+      "Image": "prom/prometheus:v3.13.5"
+    },
+    {
+      "Service": "redis",
+      "State": "running",
+      "Health": "healthy",
+      "Image": "redis:7"
+    },
+    {
+      "Service": "scheduler",
+      "State": "running",
+      "Health": "",
+      "Image": "sha256:0c1578785eaeee1472dceb2ce43c2b540d343e925656916c49b250e58c5ee038"
+    },
+    {
+      "Service": "selenium-hub",
+      "State": "running",
+      "Health": "healthy",
+      "Image": "selenium/hub:4.25.0"
+    }
+  ],
+  "host_routes": [
+    {
+      "dst": "default",
+      "gateway": "10.23.32.1",
+      "dev": "enx00e04c68006a",
+      "protocol": "dhcp",
+      "prefsrc": "10.23.32.113",
+      "metric": 100,
+      "flags": []
+    },
+    {
+      "dst": "default",
+      "gateway": "172.31.0.1",
+      "dev": "wlp1s0",
+      "protocol": "dhcp",
+      "prefsrc": "172.31.31.68",
+      "metric": 600,
+      "flags": []
+    },
+    {
+      "dst": "10.23.32.0/21",
+      "dev": "enx00e04c68006a",
+      "protocol": "kernel",
+      "scope": "link",
+      "prefsrc": "10.23.32.113",
+      "metric": 100,
+      "flags": []
+    },
+    {
+      "dst": "10.200.0.0/24",
+      "dev": "docker0",
+      "protocol": "kernel",
+      "scope": "link",
+      "prefsrc": "10.200.0.1",
+      "flags": [
+        "linkdown"
+      ]
+    },
+    {
+      "dst": "10.200.1.0/24",
+      "dev": "br-4ef6e3cff972",
+      "protocol": "kernel",
+      "scope": "link",
+      "prefsrc": "10.200.1.1",
+      "flags": []
+    },
+    {
+      "dst": "172.31.0.0/18",
+      "dev": "wlp1s0",
+      "protocol": "kernel",
+      "scope": "link",
+      "prefsrc": "172.31.31.68",
+      "metric": 600,
+      "flags": []
+    }
+  ],
+  "available_disk_bytes": 1070526464,
+  "grafana_new_image_and_container_removed": true,
+  "named_volumes_retained": true,
+  "credential_files_accessed": false,
+  "docker_daemon_or_host_network_modified": false,
+  "cleanup_failed_build_cache_ids": [
+    "t686o0pe2d8yxdunjfanvf01l",
+    "kyvaxlp15ptr6hh9g356g2a73",
+    "yzrn7ba8a0ui1thb3uysrqoll",
+    "o5fc22tr6whideypb42ds4284"
+  ],
+  "api_ready_http_statuses": [
+    200,
+    200
+  ],
+  "remaining_storage_headroom_needed": "several GB before full rebuild/new telemetry"
+}

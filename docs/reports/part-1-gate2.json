@@ -1,0 +1,71 @@
+{
+  "jobs": 500,
+  "monitor_id": "87e99379-597c-4ac4-b459-6b6cbf03c056",
+  "completed": 500,
+  "lost": 0,
+  "duplicate_durable_effects": 0,
+  "reclaimed": 3,
+  "retries_fired": 273,
+  "elapsed_s": 108.59411087499757,
+  "kills": [
+    {
+      "service": "fetcher",
+      "at_s": 11.499123987989151
+    },
+    {
+      "service": "processor",
+      "at_s": 15.397761193991755
+    },
+    {
+      "service": "fetcher",
+      "at_s": 19.671730021000258
+    },
+    {
+      "service": "fetcher",
+      "at_s": 23.193194358987967
+    },
+    {
+      "service": "processor",
+      "at_s": 26.1923700979969
+    },
+    {
+      "service": "fetcher",
+      "at_s": 30.07425739298924
+    },
+    {
+      "service": "processor",
+      "at_s": 33.428395713999635
+    },
+    {
+      "service": "fetcher",
+      "at_s": 37.796087431997876
+    },
+    {
+      "service": "fetcher",
+      "at_s": 40.90069259399024
+    },
+    {
+      "service": "fetcher",
+      "at_s": 43.85722223398625
+    },
+    {
+      "service": "fetcher",
+      "at_s": 46.997682849993
+    },
+    {
+      "service": "fetcher",
+      "at_s": 50.1657965239865
+    }
+  ],
+  "cross_replica_event_id": "32",
+  "cross_replica_end_to_end_s": 1.2872653350059409,
+  "fetcher_database_packages_absent": true,
+  "processor_storage_read_allowed_write_denied": true,
+  "durable_effect_audit": {
+    "actual_snapshots": 503,
+    "receipt_snapshots": 503,
+    "actual_events": 4,
+    "receipt_events": 4,
+    "event_outboxes": 4
+  }
+}

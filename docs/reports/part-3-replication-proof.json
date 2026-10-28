@@ -1,0 +1,10 @@
+{
+  "scope": "real PostgreSQL 16 primary and streaming standby; private Unix sockets",
+  "base_backup": true,
+  "in_recovery": true,
+  "committed_marker_visible": true,
+  "write_rejected": true,
+  "primary_lsn": "0/300C930",
+  "replica_replay_lsn": "0/300C930",
+  "deployment_compose_credentials_provisioned": false
+}
