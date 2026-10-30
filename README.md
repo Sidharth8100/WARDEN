@@ -1,43 +1,119 @@
 # WARDEN
 
-WARDEN monitors websites for meaningful changes. The API accepts checks durably,
-a scheduler allocates crawl capacity, fetchers retrieve content, processors compare
-it, and authenticated WebSockets deliver retained events across API replicas.
+### Distributed web-change detection & rule-based alerting
 
-Start with [the Part 1 engineering and learning report](docs/reports/part-1.md),
-[standing rules](docs/STANDING_RULES.md), and [authorship ledger](docs/AUTHORSHIP.md).
-Section 7 of the report gives a beginner learning path and interview exercises.
+**Track meaningful changes. Control when to crawl. Make alerts recoverable.**
 
-## Current verification status
+WARDEN monitors webpages for price drops, new listings, and content updates.
+It compares successive versions, evaluates user-defined rules, and schedules
+webhook or email alerts. Authenticated WebSockets deliver events with reconnect
+replay, while a feedback-driven classifier learns tenant-specific preferences.
 
-The implementation, strict typing, default tests, private PostgreSQL/Redis protocol
-tests and Docker builds pass. **The live Gate 2 crash/cross-replica proof has not
-passed:** the run was interrupted when the human deleted a conflicting
-172.17 bridge to restore Ethernet. All WARDEN containers are now stopped at the
-human's request. The host address-pool fix must be corrected before any restart.
-See [the network recovery handoff](docs/DOCKER_NETWORK_RECOVERY.md).
+**Python 3.12+ · FastAPI · PostgreSQL · Redis Streams · Selenium Grid · Docker**
 
-Classifier v2 fixes a discovered job-list recall regression and passes 210 seeded
-synthetic pairs. No labeled real website evaluation exists yet. See the report for
-actual counts, scope and limitations.
+[Architecture](#how-it-works) · [Measured results](#measured-results) ·
+[Getting started](#getting-started) · [Engineering guide](docs/reports/algo_explanations.md)
 
-## Local checks
+## What you can build with it
 
-```bash
-make check
-make check-todos
-uv run pytest services/processor/tests/test_durable_effects.py libs/warden_redis/tests -m integration -q
-uv run python scripts/benchmark_part1.py --output docs/reports/part-1-numbers.json
+Watch a product page, extract its price, and express the notification policy:
+
+```text
+when price.drop_percent >= 10
+  and price.current < 1000
+  and count(changes, 24h) < 3
+then webhook("price-alerts") + tag("bargain")
+cooldown 6h
 ```
 
-The explicit integration fixtures need local Redis and PostgreSQL 16 binaries and
-private Unix-socket access. They do not use deployment credentials or expose TCP
-ports. Legacy API integration cases require an explicitly configured test database.
+This schedules a webhook and tags the monitor when the conditions match, then
+suppresses further matches for six hours. `price-alerts` names an owned destination;
+prices use the monitor's configured currency. See the [rule language](docs/dsl.md).
 
-Human-owned deployment provisioning and the live proof command are in
-[PART1_SETUP.md](docs/PART1_SETUP.md). The human has already confirmed credentials
-ready for this checkout. Never read/print credential files or run the provisioning
-script as an agent. Never delete volumes to fix startup problems.
+- **Focused monitoring:** CSS/XPath scoping, HTTP fetching, and optional browser rendering.
+- **Multiple comparison signals:** Myers text diff, Merkle DOM hashing, SimHash,
+  TF-IDF, and SSIM screenshot analysis help distinguish content edits from noise.
+- **Adaptive crawling:** estimated change rates and constrained optimization allocate
+  a fixed crawl budget; timing wheels and bounded-load hashing schedule and route work.
+- **Reliable delivery:** transactional outboxes, retries, circuit breakers,
+  signed webhooks, delivery logs, and manual redelivery preserve actionable history.
+- **Personalized decisions:** online logistic regression, versioned models, shadow
+  scoring, held-out promotion gates, and rollback support controlled model changes.
 
-This working tree includes a pre-existing, uncommitted SSRF implementation owned
-separately from the Part 1 commits. The report's handoff identifies it; preserve it.
+## How it works
+
+```mermaid
+flowchart LR
+    API[FastAPI] -->|accepted job + outbox| DB[(PostgreSQL)]
+    DB --> Scheduler[Scheduler]
+    Scheduler -->|Redis Streams| Fetcher[Fetcher]
+    Fetcher -->|HTML / screenshots| Objects[(S3-compatible storage)]
+    Fetcher -->|result references via Streams| Processor[Processor]
+    Objects --> Processor
+    Processor -->|snapshot + event + outbox| DB
+    DB --> Relay[Outbox relays]
+    Relay --> Alerts[Signed webhooks / email]
+    Relay --> Events[Retained event Stream]
+    Events --> Gateway[WebSocket gateway]
+```
+
+PostgreSQL records accepted work and committed effects. Redis Streams track
+delivery and pending work; workers acknowledge after their durable handoff.
+Stable job identities and transactional receipts make repeated deliveries safe
+for committed effects. The fetcher has **no PostgreSQL credentials or driver**;
+the comparison library stays network-independent. Large payloads travel through
+**SeaweedFS's S3-compatible storage**, keeping queue messages small.
+
+## Measured results
+
+Every result links to its recorded evidence; these are scoped experiments.
+
+| Experiment | Result |
+| --- | --- |
+| [Live worker-crash recovery](docs/reports/part-1-gate2.json) | **500/500 jobs completed** across **12 worker kills**, with zero lost jobs or duplicate durable effects. |
+| [Crawl-budget simulation](docs/reports/part-1-numbers.json) | **37.7% less stale time** than fixed-interval polling at the same crawl budget. |
+| [Rule-language fuzzing](docs/reports/part-2-fuzz.json) | **60,000 programs**, zero unexpected exceptions or hangs. |
+| [PostgreSQL query tuning](docs/reports/part-3-query-plans.json) | Up to **99.6% lower query execution time** on fixture data containing 150,002 crawl rows. |
+| [Personalization benchmark](docs/reports/part-3-learning-curve.json) | F1 **0.671 → 1.000** on **600 synthetic held-out examples** under a price-drop preference policy. |
+
+## Getting started
+
+From the repository root, with Python 3.12+ and `uv` installed:
+
+```bash
+uv sync --frozen
+make check
+```
+
+`make check` runs Ruff, strict mypy, and the default pytest selection. The latest
+run passed **490 tests**; **21 skipped** because live test prerequisites were
+unavailable, and **53 were deselected** by infrastructure markers. This command
+does not start the full application stack.
+
+For a local deployment, follow [credential and service setup](docs/PART1_SETUP.md)
+and [network preflight](docs/DOCKER_NETWORK_RECOVERY.md) before creating Docker
+networks. Local published ports bind to `127.0.0.1`. Once the API is running,
+explore its [interactive API documentation](http://127.0.0.1:18000/docs).
+The [Parts 2/3 setup guide](docs/PART23_SETUP.md) covers their additional prerequisites.
+
+## Project status
+
+**Active development; API-first, with no hosted public demo.** The core pipeline
+has passed the live recovery experiment above. Rules, alerting, and online learning
+have implementation and scoped integration proofs; their updated deployment remains
+pending. Django/DRF analytics, deployed replica/PgBouncer integration, and full live
+tracing/SLO demonstrations are unfinished. OpenTelemetry instrumentation and
+Prometheus/Grafana/Jaeger/Alertmanager configuration are present.
+
+See the [execution status and remaining work](docs/PART23_STATUS.md) for the exact
+boundary between source, tested behavior, and deployed services.
+
+## Explore the engineering
+
+- [Algorithms & systems guide](docs/reports/algo_explanations.md): derivations,
+  worked examples, failure walkthroughs, and understanding checks.
+- [Part 1 report](docs/reports/part-1.md): architecture choices, source tour,
+  benchmarks, and crash-recovery evidence.
+- [Parts 2/3 report](docs/reports/parts-2-3.md): rule compilation, alert delivery,
+  online learning, database experiments, and observability.
+- [Authorship](docs/AUTHORSHIP.md): transparent attribution of AI-assisted work.
