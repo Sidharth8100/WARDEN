@@ -2,9 +2,10 @@
 
 These rules apply to every session. Read them before making changes.
 
-1. Never touch Docker daemon/network config: no custom subnets,
-   `network_mode: host`, privileged containers, or `cap_add`. A prior host-level
-   campus-network port collision fix depends on this remaining untouched.
+1. Follow the human's 28 October Docker networking rules below. Docker is allowed
+   for normal development/tests, but never use `172.17.0.0/16` or any subnet
+   within it, overlap required host networks, use `network_mode: host`, privileged
+   containers or `cap_add`. Never change host Ethernet/Wi-Fi/VPN routes to fit Docker.
 2. Publish local ports on `127.0.0.1` only. The real Part 5 production deployment
    is a deliberate, separately reasoned public IP/domain exception.
 3. Ask before destructive commands: `docker compose down -v`, `docker volume rm`,
@@ -25,13 +26,49 @@ These rules apply to every session. Read them before making changes.
 9. Every session updates `docs/AUTHORSHIP.md` and this part's full report, including
    a Handoff that a future session can read without conversation context.
 
+Report structure and minimums are recorded in [REPORT_SPEC.md](REPORT_SPEC.md).
+Use its nine ordered sections for every part.
+
 ## Current session authorization
 
 On 23 October 2026 the human retired the student-stub system and authorized AI
-implementation of all remaining algorithms, including incomplete earlier work.
-The latest request explicitly authorizes the full Part 1 without Phase A or CP
-pauses. This overrides the attachment's checkpoint pauses, but does not waive
-the credential, dependency, safety, trust-zone, or evidence requirements above.
+implementation of all algorithms. The no-checkpoint exception applied to Part 1.
+On 28 October the human requested Part 2 Phase A and resuming unfinished Part 1
+tests under the new networking policy. Phase A means inspect actual source/tests,
+write findings and the plan, then STOP and wait for "go" before Part 2 Phase B.
+Part 2 checkpoints require "continue": CP1 lexer/Pratt parser/pretty-printer plus
+50k round-trip fuzz cases; CP2 type checker/evaluator/windows/cooldowns; CP3
+outbox/signed webhook recovery; CP4 Mailpit/delivery log/manual redelivery.
+Phase C is the full report. No stub system is reinstated.
+
+The later 28 October request explicitly authorizes **all of Parts 2 and 3 without
+Phase/CP approval pauses** and asks for no approval messages while the human sleeps.
+Continue through independent implementation and proofs. The combined report is
+`docs/reports/parts-2-3.md`, with detailed direct explanations, no analogies and
+no repeated Part 1 material. That request supersedes the checkpoint pauses above,
+not secret ownership, strict checks, SSRF or permanent trust boundaries. Do not
+generate/store new deployment credentials; prepare human-run setup where needed
+and continue unaffected work without sending approval questions.
+
+## Docker networking policy — 28 October 2026 (supersedes earlier blanket hold)
+
+- Before creating any network inspect `ip route`, all relevant route tables,
+  `docker network ls`, `docker network inspect`, and `/etc/docker/daemon.json`.
+- Automatic allocation is permitted only after verifying the daemon's pools
+  exclude conflicting ranges. A safe built-in bridge `bip` alone is insufficient.
+- If needed, choose an explicit Compose subnet from actual route/network evidence
+  and explain its compatibility before changing configuration. Recheck on another
+  host or after a VPN/network change; a private CIDR is not inherently unused.
+- Preserve existing daemon settings. Inform the human before any daemon restart
+  or disruption of running containers. Never remove networks indiscriminately,
+  change host IP/gateway/routes/firewall/network-manager, or use host networking.
+- After a network change verify bridge/project subnets, required host routes and
+  actual inter-service connectivity. If safety cannot be established, stop and
+  report the conflict rather than guessing. Keep volumes and credentials intact.
+- Current inspected local choice: `10.200.1.0/24` in the development override.
+  It is disjoint from Ethernet `10.23.32.0/21`, Wi-Fi `172.31.0.0/18`, Docker's
+  `10.200.0.0/24`, and forbidden `172.17.0.0/16`. The daemon currently has only
+  `bip=10.200.0.1/24`; its automatic address pools remain uncorrected.
 
 ## One-time recovery authorization — 23 October 2026
 
@@ -48,5 +85,7 @@ The attempted recreation restored Docker connectivity but reintroduced the
 172.17.0.0/16 route and the human's Ethernet problem. The human deleted that bridge
 and explicitly selected keeping Docker stopped until the host address-pool fix is
 corrected. That later instruction closes the one-time recovery exception: do not
-repeat network recreation or start containers before the human confirms the host
-fix and authorizes resuming. See `docs/DOCKER_NETWORK_RECOVERY.md`.
+repeat network recreation or start containers under that old authorization.
+The 28 October policy above now authorizes a route-checked project-specific
+recovery and resumption of Part 1 tests; it does not authorize blindly recreating
+the stale network. See `docs/DOCKER_NETWORK_RECOVERY.md` for dated evidence.

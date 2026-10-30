@@ -1,4 +1,53 @@
-# Docker address-pool handoff — do not start WARDEN yet
+# Docker network recovery record
+
+## Current status — 28 October 2026
+
+The human replaced the earlier blanket hold with a route-checked networking policy,
+then explicitly approved scoped `docker compose down` **without `-v`**, rebuild,
+start and Part 1 proof. Automatic review had rejected removal under the older
+authorization; no removal workaround was used before the new approval.
+
+All route tables, interfaces, existing Docker networks and daemon configuration
+were inspected. Ethernet is `10.23.32.0/21` via `10.23.32.1`; Wi-Fi is
+`172.31.0.0/18` via `172.31.0.1`. The daemon has only `bip=10.200.0.1/24`, with
+no configured automatic address pools. Stale `warden_default` still recorded
+forbidden `172.17.0.0/16`. No WARDEN containers were running before recovery.
+
+The local Compose override now explicitly uses **`10.200.1.0/24`**, disjoint from
+the inspected Ethernet, Wi-Fi and default bridge (`10.200.0.0/24`). The subnet
+and rationale were explained before configuration. Scoped runtime recreation
+retained `warden_pgdata`, `warden_redisdata` and `warden_objectdata`. Inspection
+confirmed the new project gateway `10.200.1.1`, no 172.17 route, and unchanged
+Ethernet/Wi-Fi routes. Images rebuilt and services became healthy/reachable;
+real storage/auth/queue connectivity is exercised by the proof rather than
+inferred solely from health status. The built-in bridge is unchanged.
+
+No daemon restart/settings, host IP/default gateway/routes/firewall/network-manager
+or credential files were edited. Automatic allocation remains unsafe until the
+host administrator corrects default address pools. The chosen /24 is based on
+today's visible routes, not knowledge of every remote campus/VPN destination;
+reinspect before creation on a changed host/network. Existing 23 October evidence
+below is retained as history and is superseded as authorization by this section.
+
+The first 28 October proof timed out with 500 batch jobs unfinished. It exposed
+older missing-object results starving the processor; a tested narrow missing-key
+classification now fails/quarantines those results without clearing queues or
+inventing snapshots. All 503 receipts for that proof monitor subsequently
+completed (500 batch plus setup/scheduled work). The fresh final proof outcome
+is **passed**: 500/500 batch jobs, zero lost/duplicate durable effects, 12 kills,
+three reclaims observed through shared counters, and cross-replica 1.287 seconds.
+`docs/reports/part-1-gate2.json` records the exact result. Final inspection confirmed
+only safe bridge/project subnets and localhost published ports; Ethernet gateway
+ping returned two replies with no packet loss, and the public default route still
+selects Ethernet. Containers remain running under the new authorization.
+
+The final aggregate failure audit across all monitors records 40 explicit
+`missing_snapshot_blob` failures and 37 `fetch_attempts_exhausted` failures.
+These are outside the successful fresh 500-ID batch; they remain failed receipts,
+not silently deleted or relabeled as successful recovery. Missing historical
+object provenance/restoration still needs investigation.
+
+## Historical hold — 23 October 2026
 
 The human chose **“Keep Docker stopped; have the existing host address-pool fix
 corrected first”** on 23 October 2026. All WARDEN containers are stopped; named

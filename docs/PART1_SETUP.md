@@ -1,10 +1,12 @@
 # Part 1: human credential setup and live proof
 
-**Current operational hold:** the human asked to keep Docker stopped until the
-host address-pool fix is corrected. Do not execute any bring-up command below yet.
-Read [the network recovery handoff](DOCKER_NETWORK_RECOVERY.md). Changing a published
-port does not fix the conflicting 172.17 subnet route. Credentials are already
-provisioned; do not rerun the generator or inspect its outputs.
+**28 October operational update:** the human authorized route-checked Docker use
+and explicitly approved scoped recreation without volume deletion. The local
+override now uses inspected `10.200.1.0/24`; Docker's built-in bridge remains
+`10.200.0.0/24`. Recheck host routes and existing networks before any new network
+creation; daemon automatic pools remain uncorrected. See
+[the recovery record](DOCKER_NETWORK_RECOVERY.md). Credentials are already
+provisioned: do not rerun the generator or inspect its outputs.
 
 Agents must not execute the credential generator or inspect/print its credential
 files. Authorized services and the proof process consume runtime credentials
@@ -104,7 +106,7 @@ host with different numeric IDs, prefix Compose commands with
 Production images retain their fixed non-root UID 10001. Do not chmod/copy keys or
 run the APIs as root to bypass a bind-mount permission issue.
 
-After the host fix and explicit permission to resume:
+After route/network preflight and authorization to run the worker-crash proof:
 
 ```bash
 uv run --env-file .runtime/proof.env python scripts/chaos_queue_proof.py --jobs 500 --kill-workers
